@@ -1,7 +1,8 @@
+// Experiment declarations (circuitNodes, generalDeclarations, modelRunDefinition).
 import { transmittedBits } from './stimulus'
 import { fail } from './diagnostics'
 import { subcircuitTree, selectPort } from '../board'
-import type { CircuitJson, Geometry } from '../board'
+import type { CircuitJson, LaneMapping } from '../board'
 import type { IbisModelDefinition, IbisRunConfig, IbisReferencePorts } from '@tscircuit/ibis-to-spice'
 import type { ModelRunDefinition } from '../buffers'
 import type { CircuitNodes, Declarations, PipelineIbisModel, RunControls, SimulationModeling, SimulationPlan } from './types'
@@ -21,7 +22,7 @@ const exactly=<T>(items: T[],label: string): T=>{
  * Resolve electrical connectivity while leaving extracted PCB channel endpoints
  * distinct. Source traces describe connectivity, not ideal channels.
  */
-export function circuitNodes(circuit: CircuitJson,geometry: Pick<Geometry,'mappings'>,modeling: SimulationModeling): CircuitNodes {
+export function circuitNodes(circuit: CircuitJson,geometry: { mappings: readonly LaneMapping[] },modeling: SimulationModeling): CircuitNodes {
   const parents=new Map<string,string>()
   /** Registers a port or net as its own connectivity set the first time it is seen. */
   const add=(id: string): void=>{
@@ -111,12 +112,7 @@ export function circuitNodes(circuit: CircuitJson,geometry: Pick<Geometry,'mappi
 /**
  * Combines experiment timing and probes with the lowered IBIS run controls. Every reference is checked here, before any solver runs.
  */
-export function generalDeclarations({ circuit, geometry, modeling, controls }: {
-  circuit: CircuitJson
-  geometry: Pick<Geometry,'mappings'>
-  modeling: SimulationModeling
-  controls: Record<string, RunControls>
-}): Declarations {
+export function generalDeclarations(circuit: CircuitJson,geometry: { mappings: readonly LaneMapping[] },modeling: SimulationModeling,controls: Record<string, RunControls>): Declarations {
   for(const type of ['simulation_experiment','simulation_ibis_model','simulation_voltage_probe','source_port','source_net','source_component']) {
     const seen=new Set<string>()
     for(const record of circuit.filter(e=>e.type===type)) {
@@ -173,7 +169,7 @@ export function generalDeclarations({ circuit, geometry, modeling, controls }: {
     if(scope===undefined) fail('simulation_scope',`${experiment.name}: multiple modeled subcircuits require an explicit experiment scope`)
     const scopedModels=models.filter(model=>subcircuits.within(componentScope(model.source_component_id),scope))
     if(!scopedModels.length) fail('simulation_scope',`${experiment.name}: no models in its explicit subcircuit scope`)
-    for(const mapping of geometry.mappings) for(const endpoint of [mapping.from,mapping.to,...(mapping.intermediatePorts??[]).map(tap=>tap.sourcePortId)]) {
+    for(const mapping of geometry.mappings) for(const endpoint of [mapping.from,mapping.to]) {
       const port=ports.get(endpoint)
       if(!port) fail('ibis_mapping',`${mapping.port}: missing channel endpoint ${endpoint}`)
       if(!subcircuits.within(componentScope(port.source_component_id),scope)) fail('simulation_scope',`${experiment.name}: this explicit PCB channel belongs to another scope; separate channel configurations are required`)
@@ -195,7 +191,7 @@ export function generalDeclarations({ circuit, geometry, modeling, controls }: {
       const attachments=scopedModels.filter(model=>Object.values(model.ibis_pin_name_to_source_port_id).includes(state.source_port_id))
       if(attachments.length!==1) fail('ibis_state',`${experiment.name}: run state must select exactly one modeled pin`)
     }
-    for(const mapping of geometry.mappings) for(const endpoint of [mapping.from,mapping.to,...(mapping.intermediatePorts??[]).map(tap=>tap.sourcePortId)]) {
+    for(const mapping of geometry.mappings) for(const endpoint of [mapping.from,mapping.to]) {
       const bindings=scopedModels.flatMap(model=>Object.values(model.ibis_pin_name_to_source_port_id)).filter(port=>port===endpoint)
       if(bindings.length > 1 || (bindings.length === 1 && !stateIds.has(endpoint)) || (bindings.length === 0 && !components.some(component => component.source_component_id === ports.get(endpoint)?.source_component_id && ['simple_resistor', 'simple_capacitor', 'simple_inductor'].includes(component.ftype)))) fail('channel_model',`${experiment.name} ${mapping.port}: endpoint ${endpoint} requires exactly one modeled physical pin and an explicit run state`)
     }
