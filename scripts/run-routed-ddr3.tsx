@@ -41,7 +41,7 @@ if (process.argv.includes('--addr-cmd')) {
   const errors = circuitJson.filter(record => record.type.endsWith('_error'))
   if (errors.length) throw new Error(JSON.stringify(errors))
 }
-const native = createNativeSolver({ timeoutMs: 45 * 60 * 1000 })
+const native = createNativeSolver({ timeoutMs: (number('timeout-minutes') ?? 45) * 60 * 1000 })
 let invocations = 0
 let nativeMilliseconds = 0
 const started = performance.now()
