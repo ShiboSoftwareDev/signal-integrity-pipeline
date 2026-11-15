@@ -1,14 +1,14 @@
 // IBIS fixture known-answer harness (docs/ibis-fixture-check.md). It compiles one driver with the pipeline's
 // own `convertSwitching`, places it alone into every fixture its [Rising/Falling Waveform] tables declare and
 // compares ngspice with those tables. Receivers get the DC analogue: the pad current against the clamp tables.
-import { cornerValue, interpolate, parseIbis, type IbisCorner, type IbisDocument } from '@tscircuit/ibis-to-spice'
+import { cornerValue, interpolate, parseIbis, type IbisBitsStimulus, type IbisCorner, type IbisDocument } from '@tscircuit/ibis-to-spice'
 import { convertSwitching } from '../../src/buffers/switching'
 import { crossingTime, runGoldenDeck, valueAt } from './golden-checks'
 
 /**
  * Fixed before any run (docs/ibis-fixture-check.md): max |V_sim - V_table| <= 2% of the table swing, and the
  * 50% crossing within max(10 ps, 1% of the table's 20-80% edge time). DC receiver currents: <= 1% of the
- * largest table current over 0..V_supply.
+ * largest table current over -0.5 V..V_supply + 0.5 V.
  */
 export const fixtureTolerance = { swingFraction: .02, crossingSeconds: 10e-12, edgeFraction: .01, currentFraction: .01 } as const
 
@@ -26,6 +26,7 @@ export interface FixtureResult {
   fixture: string
   swingVolts: number
   maxErrorFraction: number
+  maxErrorSeconds: number
   crossingShiftSeconds: number
   crossingLimitSeconds: number
   pass: boolean
@@ -54,7 +55,7 @@ function compile(input: FixtureCase, edge: 'rising' | 'falling' | 'input', durat
   const document = parseIbis(input.text)
   const pin = signalPin(document, input.component, input.model)
   const initialState = edge === 'rising' ? 0 : 1
-  const stimuli = edge === 'input' ? {} : { sig: { unitInterval: duration * 1e3, startTime: 0, initialState, pattern: { type: 'bits' as const, bits: String(1 - initialState), repeat: false } } }
+  const stimuli: Record<string, IbisBitsStimulus> = edge === 'input' ? {} : { sig: { unitInterval: duration * 1e3, startTime: 0, initialState, pattern: { type: 'bits', bits: String(1 - initialState), repeat: false } } }
   const converted = convertSwitching(new TextEncoder().encode(input.text), {
     definition: { source: { content: input.text }, component: input.component, pinMap: { [pin]: 'sig' }, modelSelections: { [pin]: input.model },
       references: { [pin]: { pullup: 'vdd', pulldown: 'gnd', powerClamp: 'vdd', groundClamp: 'gnd' } }, corner: input.corner, packagePolicy: 'omit' },
@@ -95,15 +96,16 @@ export async function replayFixtures(input: FixtureCase): Promise<FixtureResult[
     const last = table.at(-1)![1]
     const swing = Math.abs(last - first)
     const level = (fraction: number): number => first + (last - first) * fraction
-    const error = Math.max(...table.map(([time, value]) => Math.abs(valueAt(rows, k + 1, time) - value))) / swing
+    const errors = table.map(([time, value]) => Math.abs(valueAt(rows, k + 1, time) - value) / swing)
+    const error = Math.max(...errors)
     const shift = crossingTime(rows, k + 1, level(.5)) - crossingTime(table, 1, level(.5))
     const limit = Math.max(fixtureTolerance.crossingSeconds, fixtureTolerance.edgeFraction * (crossingTime(table, 1, level(.8)) - crossingTime(table, 1, level(.2))))
     const pass = error <= fixtureTolerance.swingFraction && Math.abs(shift) <= limit
-    return { model: input.model, corner: input.corner, edge, fixture, swingVolts: swing, maxErrorFraction: error, crossingShiftSeconds: shift, crossingLimitSeconds: limit, pass }
+    return { model: input.model, corner: input.corner, edge, fixture, swingVolts: swing, maxErrorFraction: error, maxErrorSeconds: table[errors.indexOf(error)][0], crossingShiftSeconds: shift, crossingLimitSeconds: limit, pass }
   })
 }
 
-/** A receiver's DC pad current over 0..V_supply against the sum of its clamp tables (IBIS: current into the pin). */
+/** A receiver's DC pad current over -0.5 V..V_supply + 0.5 V against the sum of its clamp tables (IBIS: current into the pin). */
 export async function receiverCurrent(input: FixtureCase): Promise<{ model: string; corner: IbisCorner; maxErrorFraction: number; peakAmps: number; midSlopeOhms: number; pass: boolean }> {
   const document = parseIbis(input.text)
   const buffer = document.getBuffer(input.model)
@@ -113,8 +115,9 @@ export async function receiverCurrent(input: FixtureCase): Promise<{ model: stri
   const powerClamp = table(buffer.powerClamp)
   const groundClamp = table(buffer.groundClamp)
   const steps = 300
+  const overshoot = .5
   const deck = [`* ${input.model} ${input.corner} receiver DC`, options, `VDD vdd 0 ${supply}`, compiled.source, `X0 ${compiled.nodes('pad')} ${compiled.name}`, 'VPAD pad 0 0',
-    '.control', 'set wr_singlescale', 'set wr_vecnames', 'set numdgt=12', `dc VPAD 0 ${supply} ${supply / steps}`, 'wrdata golden.dat -i(VPAD)', 'quit', '.endc', '.end'].join('\n') + '\n'
+    '.control', 'set wr_singlescale', 'set wr_vecnames', 'set numdgt=12', `dc VPAD ${-overshoot} ${supply + overshoot} ${(supply + 2 * overshoot) / steps}`, 'wrdata golden.dat -i(VPAD)', 'quit', '.endc', '.end'].join('\n') + '\n'
   const rows = await runGoldenDeck(deck)
   const expected = rows.map(([voltage]) => interpolate(powerClamp, supply - voltage) + interpolate(groundClamp, voltage))
   const peak = Math.max(...expected.map(Math.abs))

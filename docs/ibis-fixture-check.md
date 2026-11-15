@@ -48,9 +48,14 @@ so a model with them cannot reach this harness silently. In the vendor files bel
 |---|---|---|
 | max \|V_sim − V_table\| over the table's own time points | ≤ 2% of the table swing | ≈ 15 mV on the 0.75 V swing of a 50 Ω DDR3 fixture, an order below the 175 mV VIH(ac) − VREF margin (JESD79-3F §9). Numerical error sources are the 3-point derivative used for C_comp·dV/dt, linear table interpolation and ngspice `reltol=1e-4`; each is well under 1%. |
 | 50% crossing shift | ≤ max(10 ps, 1% of the table's 20–80% edge time) | 10 ps is 0.8% of the 1.25 ns UI at 800 Mb/s. The 1% term only matters for edges slower than 1 ns. The 20–80% definition is the IBIS `[Ramp]` one (§6.1). |
-| Receiver DC pad current over 0..V_supply | ≤ 1% of the largest table current | Receivers (`CMD`, `ODT_60`) have no waveform tables; the compiled clamp sources are the tables themselves, so only solver error remains. A sign or reference error is a 100% error. |
+| Receiver DC pad current over −0.5 V..V_supply + 0.5 V | ≤ 1% of the largest table current | Receivers (`CMD`, `ODT_60`) have no waveform tables; the compiled clamp sources are the tables themselves, so only solver error remains. A sign or reference error is a 100% error. The 0.5 V margin covers the DDR3 0.4 V AC overshoot/undershoot limit (JESD79-3F §9). |
 
 These limits are not loosened for any model. A failure is reported below with its numbers.
+
+Amendment, made before the receiver results below: the receiver sweep was first declared over 0..V_supply.
+`CMD` has no ODT, so its clamps carry no current inside the rails, and that first run gave no number
+(0/0). The sweep was widened to 0.5 V beyond each rail for every receiver before re-running. The
+`ODT_60` error under the original range was 0.003% at every corner.
 
 ## Synthetic known answer (committed, runs wherever ngspice is on PATH)
 
