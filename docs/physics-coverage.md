@@ -71,26 +71,42 @@ couples to it, from the pipeline's own board data. That data is `segmentRoutes` 
 the stackup, the physical `pcb_via` barrels and the port pads. It writes two files for the net:
 
 - **`model.json`** for openEMS. `tools/openems/run_net.py` reads it, builds the CSXCAD geometry and
-  runs FDTD. Copper traces, pads and pours are boxes with their real thickness. Vias are solid
-  barrels with pads on their connected layers. The antipad uses the pipeline's assumed diameter
-  (pad + 0.2 mm) in every plane the barrel crosses that is not on its own net. Each port is a
-  50 Ω lumped port from the pad down to the nearest reference plane.
-- **`ladder.cir`** for ngspice. It is the pipeline's own `routeLadder` and `routeTransitions` (and
-  `routeOblique`, when neighbours are present) for the same net, with the same 50 Ω ports, run as
-  `.ac` from 10 MHz to 5 GHz.
+  runs FDTD.
+  - Copper traces, pads and pours are PEC boxes with their real thickness.
+  - Vias are solid barrels, with pads on their end layers and on same-net planes.
+  - Each plane keeps its actual pour holes. Every other-net plane the barrel crosses also gets at
+    least the pipeline's assumed clearance (pad + 0.2 mm).
+  - Planes run 10 mm past the model region, through the PML, so the net never sees a plane edge
+    that the pipeline's infinite planes do not have.
+  - Each port is a 50 Ω lumped port from the reference plane face to the pad face.
+- **`ladder.cir`** for ngspice. It is the pipeline's own `routeLadder`, `routeTransitions` and
+  `routeOblique` for the same net and scope, with the same 50 Ω ports, run as `.ac` from 10 MHz to
+  10 GHz in 10 MHz steps. The ladder cells are sized for a 35 ps rise, about 3.5 ps per cell.
 
 The same post-processing (`tools/openems/compare.py`) turns both S-parameter sets into a TDR
-impedance profile, |S21| and delay. The TDR uses a 50 ps 10–90 % Gaussian step. Delay is the
-difference between the 50 % crossings of the step responses at S21 and at the reference.
+impedance profile, |S21| and delay:
+
+- The TDR uses a 100 ps 10–90 % Gaussian step. The 10 GHz data band limits the step to about
+  100 ps, because the Gaussian is down to 5 % at 10 GHz.
+- Z0 is read on the TDR at the round-trip time to the middle of each straight run of at least
+  8 mm. That time comes from the pipeline's own per-layer delay.
+- Delay is the difference between the 50 % crossings of the S21 step response and of the
+  incident step.
 
 Like-for-like physics, declared before the run:
 
 - **Conductors are lossless on both sides.** openEMS copper is PEC, because resolving skin depth in
-  FDTD is out of reach. In the ladder, conductor R and skin R are zero. Conductor loss is
-  covered by golden checks 7–11.
-- **The dielectric is identical on both sides.** openEMS gets the pipeline's own nine Debye poles
-  per laminate layer: ε(ω) = ε∞ + Σ Δε_p/(1 + jω/r_p), with Δε_p = εr·tan δ·w_p and ε∞ chosen so
-  that Re ε(1 GHz) = εr. These are the same weights and rates as `causalLossPoles()`.
+  FDTD is out of reach. In the ladder, skin R is zero and DC R is scaled by 10⁻⁶. It is kept only
+  as the multiport's numerical anchor. Conductor loss is covered by golden checks 7–11.
+- **The dielectric is lossless on both sides,** with each laminate's stackup εr, the pipeline's
+  1 GHz reference value. In the ladder, tan δ = 0 removes the Foster branches, so C is the
+  extracted C. openEMS gets the same εr per band, built the same way as `routeCrossSection`'s
+  slabs: copper-layer volume takes the nearest laminate, and outer copper and its overcoat take
+  mask. The generator can instead emit the pipeline's nine Debye poles per band:
+  ε(ω) = ε∞ + Σ Δε_p/(1 + jω/r_p), with Δε_p = εr·tan δ·w_p, the same weights and rates as
+  `causalLossPoles()`. openEMS ran at 1.8 MC/s per thread with nine-pole Debye and 18.9 MC/s
+  without, so the dispersive comparison is left as a follow-up. Dielectric loss and its causality
+  are covered by golden checks 12–14.
 - Both sides use the same stackup, mask slab and copper geometry, and the same port pads and
   50 Ω references. Any difference left is then 3D field physics that the 2.5D model leaves out,
   plus the solver error budget below.
@@ -99,8 +115,8 @@ Like-for-like physics, declared before the run:
 
 | Quantity | Tolerance | Justification |
 |---|---|---|
-| Z0 (TDR plateau on a straight run, at least 3 rise lengths from a port or via) | ±3 % | Pipeline BEM ≤ 0.3 % (golden checks 2–5). openEMS staircase and mesh error with ≥ 3 cells across the trace width and graded z cells is about 1–2 % (openEMS MSL tutorials; Taflove & Hagness, *Computational Electrodynamics*, 3rd ed., §4.6). TDR smoothing on a plateau longer than 3 rise lengths is under 0.5 %. |
-| Delay (S21 step, 50 % crossing) | ±2 % | Yee numerical dispersion at ≥ 20 cells per wavelength at 5 GHz is under 0.5 % phase velocity (Taflove & Hagness §4.6). Port reference planes are within one cell, under 0.3 % of a 20 mm route. Both sides use the same dielectric. Ladder phase error is under 0.3 % (golden check 21). |
+| Z0 (TDR at the middle of each straight run of 8 mm or more) | ±3 % | Pipeline BEM ≤ 0.3 % (golden checks 2–5). openEMS staircase and mesh error with ≥ 3 cells across the trace width and graded z cells is about 1–2 % (openEMS MSL tutorials; Taflove & Hagness, *Computational Electrodynamics*, 3rd ed., §4.6). TDR smoothing is under 0.5 % on a plateau at least one round-trip rise (8 mm at 6 ps/mm) from its ends. |
+| Delay (S21 step, 50 % crossing) | ±2 % | Yee numerical dispersion at ≥ 20 cells per wavelength at 10 GHz is under 0.5 % phase velocity (Taflove & Hagness §4.6). Port reference planes are within one cell, under 0.3 % of a 20 mm route. Both sides use the same dielectric. Ladder phase error is under 0.3 % (golden check 21). |
 | \|S21\| (dB), 10 MHz – 3 GHz | ±0.5 dB | Lossless conductors on both sides. Lumped-port parasitics (about 0.1–0.2 nH of vertical port current path) give under 0.1 dB of mismatch ripple at 3 GHz. Microstrip radiation over a short top-layer run is under 0.1 dB below 3 GHz. The rest of the 0.5 dB is margin for mesh error. 3–5 GHz is reported, with no tolerance. |
 
 A failed tolerance is a finding, not a reason to change the tolerance. Each difference is tied
