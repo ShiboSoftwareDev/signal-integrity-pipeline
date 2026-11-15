@@ -67,7 +67,7 @@ test('three-trace TSX receivers converge under ladder, timestep and panel refine
   const context: SolverContext = { progress: (): void => undefined, runSolver: createNativeSolver({ timeoutMs: 600_000 }) }
   const base = await solve(problem, context)
   const step = Number(/^\.tran (\S+)/m.exec(base.deck)![1])
-  assert.equal(base.capture.probes.length, 3)
+  assert.deepEqual([...new Set(base.capture.probes.map(probe => probe.name.split('_')[0]))], ['L0', 'L1', 'L2'])
   for (const [name, refined] of [['ladder', { refinement: 2 }], ['timestep', { stepSeconds: step / 2 }], ['panels', { panels: 18 }]] as const) {
     const result = compareRefinement(base.capture, (await solve({ ...problem, ...refined }, context)).capture, 1.5)
     console.log(name, JSON.stringify({ crossingPs: result.crossing.seconds * 1e12, overshootMv: result.overshoot.volts * 1e3, undershootMv: result.undershoot.volts * 1e3, waveformMv: result.waveform.volts * 1e3, edgeCountMismatches: result.edgeCountMismatches }))

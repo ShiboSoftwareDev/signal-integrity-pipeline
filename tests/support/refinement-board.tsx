@@ -6,9 +6,9 @@ export const refinementIbis = `[IBIS Ver] 4.2
 [Component] FAST15
 [Manufacturer] Refinement fixture
 [Package]
-R_pkg 0 0 0
-L_pkg 0 0 0
-C_pkg 0 0 0
+R_pkg .1 .1 .1
+L_pkg 1n 1n 1n
+C_pkg .3p .3p .3p
 [Pin] signal_name model_name
 2 A FAST15_IN
 3 GND GND
