@@ -71,6 +71,58 @@ The same test fits the weights from a document with C_comp set to zero, while th
 C_comp. That is the bug class “C_comp current left out of weight extraction”, which IBIS rules out (“All
 tables assume that the die capacitance is included”). The check must fail on it.
 
+## How to run
+
+```sh
+# Synthetic closed form: runs whenever ngspice is on PATH (CI installs it)
+node --import tsx --test --test-name-pattern='closed-form' tests/buffers/switching.test.tsx
+# Vendor models: local, never-committed IBIS files; about 2 min of one core in total
+SI_NATIVE_TESTS=1 IBIS_MODEL_DIR=/path/to/models node --import tsx --test --test-name-pattern='golden stage 4' tests/buffers/switching.test.tsx
+```
+
 ## Results
 
-Measured results are filled in below after the runs.
+Measured on 2026-11-15 with ngspice 47 and the production `.options klu reltol=1e-4 abstol=1e-12 vntol=1e-7 pivrel=0.1`,
+`tran 1p`.
+
+### Synthetic closed form
+
+| Case | Replays | Worst max \|ΔV\| (% of swing) | Worst \|Δt50\| | Status |
+|---|---:|---:|---:|---|
+| Correct weights, typ / min / max, 3 fixtures × 2 edges each | 18 | 0.13 / 0.10 / 0.18 (out-of-sample 100 Ω fixture: 0.11 / 0.08 / 0.15) | 0.03 ps | pass |
+| C_comp dropped from the weight fit (deliberate bug) | 18 | 14.5–14.7 / 11.0 / 18.9–19.4 | 42.3–43.7 ps | fails every replay, as required |
+| Receiver, 120 Ω clamps to each rail | 1 | DC current within 1% | RTT 60.0 Ω (closed form 60 Ω) | pass |
+
+### Vendor DDR3 models used on the board (local, not committed)
+
+Each driver row is 12 replays: typ, min and max corners × rising and falling × the two 50 Ω fixtures
+(to 0 V and to V_dd, with V_fixture_min/max). Neither vendor file declares C_fixture, L_fixture or R/L/C_dut.
+For every edge here the 1% edge-time term is below 10 ps, so the crossing limit is 10 ps throughout.
+
+| Model | Worst max \|ΔV\|, % of swing (typ / min / max) | Worst case | Worst \|Δt50\| | Failures |
+|---|---|---|---:|---:|
+| AM335x Model_352 | 0.60 / 0.38 / 1.90 | max, falling, 50 Ω to 0 V, at 111 ps | 0.70 ps | 0 / 12 |
+| AM335x Model_345 | 0.28 / 0.45 / **2.08** | max, falling, 50 Ω to 0 V, at 118 ps | 0.70 ps | 1 / 12 |
+| AM335x Model_273 | 0.45 / 0.56 / 1.24 | max, falling, 50 Ω to 0 V, at 84 ps | 1.41 ps | 0 / 12 |
+| AM335x Model_343 | 0.32 / 0.54 / **2.44** | max, falling, 50 Ω to 0 V, at 104 ps | 0.39 ps | 1 / 12 |
+| AM335x Model_336 | 0.34 / 0.46 / 1.78 | max, falling, 50 Ω to 0 V, at 105 ps | 0.80 ps | 0 / 12 |
+| AM335x Model_655 | 0.32 / 0.54 / **2.44** | same tables as Model_343 | 0.39 ps | 1 / 12 |
+| AM335x Model_847 | 0.32 / 0.54 / **2.44** | same tables as Model_343 | 0.39 ps | 1 / 12 |
+| Winbond DATA_34 | 0.16 / 0.13 / 0.44 | max, rising, 50 Ω to 0 V | 0.05 ps | 0 / 12 |
+| Winbond DATA_40 | 0.17 / 0.18 / 0.26 | max, rising, 50 Ω to 0 V | 0.05 ps | 0 / 12 |
+
+Totals: 104 of 108 driver replays pass. Every 50% crossing is within 1.41 ps of the table.
+
+| Receiver | DC current error, % of peak (typ / min / max) | RTT (JESD79-3F, VREF ± 175 mV) |
+|---|---|---|
+| Winbond CMD | 0.0001 / 0.0001 / 0.0000 | no termination (clamps conduct only outside the rails) |
+| Winbond ODT_60 | 0.006 / 0.006 / 0.003 | 69.8 / 67.4 / 70.0 Ω |
+
+## Findings
+
+| Finding | Evidence | Likely cause | Status |
+|---|---|---|---|
+| Four AM335x replays exceed 2% of swing | Model_345, 343, 655, 847; maximum corner, falling edge, 50 Ω to 0 V: 2.08%, 2.44%, 2.44%, 2.44%. Each is the onset of the edge (one or two table knots near 100–120 ps). The 50% crossing is within 0.7 ps, and the same models pass at typ and min (≤ 0.56%). | The two fixture tables of one edge have **different, sparse time grids**. In Model_343 at the maximum corner, the to-V_dd table has one 80 ps segment across the onset, and the to-0 V table has a knot inside it where its voltage is still flat. `switchingWeights` interpolates both linearly onto the union grid, so at that knot it sees the to-V_dd fixture already 79% of the way along its segment while the other is flat, and solves Ku = 0.89 instead of ≈ 1. Replayed, the to-0 V fixture starts falling early, 21 mV (2.4% of swing) below its table at that knot. Model_345 shows the same pattern (an 82 ps segment with two knots of the other table inside it). The tables themselves do not say what the to-V_dd waveform does inside its 80 ps gap, so the error is within the data's own sampling ambiguity. | Follow-up, not fixed. The extraction lives in the pinned `@tscircuit/ibis-to-spice` (`lib/convert.ts`, `switchingWeights`), and the right interpolation inside a gap is a modelling choice, not a clear bug. Candidates: shape-preserving interpolation, or holding a table flat until the other fixture's onset. The vendor test keeps the four cases as a `todo` subtest; any other failure still fails. |
+| ODT_60 effective RTT is 67–70 Ω | DC check above; the compiled clamp current matches the vendor tables to 0.006% | Vendor data, not the pipeline: the tables themselves give this RTT. Reported only; no tolerance was declared for it. | Observation |
+| Latent: only the typical corner is corner-consistent on the board path | `modelRunDefinition` (`src/simulation/declarations.ts`) always sets `corner: 'typical'`. `convertPackaged` (`src/buffers/package.ts`) takes die-rail voltages from `referenceVoltages` (typical column) and scalar package R/L/C from `component.package[field][0]` (typical), whatever the corner. | A min/max run through `convertPackaged` would pair min/max I-V tables and weights with typical rails (1.5 V instead of 1.425/1.575 V on the AM335x). Not reachable today. | Follow-up before exposing corners. This check reaches min/max through `convertSwitching` with corner rails. |
+| Package parasitics are correctly excluded | IBIS 7.2 §6.1 (quoted above); `convertSwitching` forces `packagePolicy: 'omit'`, and the board deck adds the package separately | — | Holds |

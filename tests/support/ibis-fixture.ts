@@ -42,6 +42,7 @@ function signalPin(document: IbisDocument, component: string, model: string): st
 /** Rail voltages at `corner`; this harness supports one supply and ground, with clamps on the same rails. */
 function rails(document: IbisDocument, model: string, corner: IbisCorner): number {
   const buffer = document.getBuffer(model)
+  /** A reference at `corner`, or its IBIS default. */
   const at = (range: typeof buffer.voltage | undefined, fallback: number): number => range ? cornerValue(range, corner, model) : fallback
   const supply = cornerValue(buffer.voltage, corner, model)
   const pullup = at(buffer.pullupReference, supply)
@@ -95,6 +96,7 @@ export async function replayFixtures(input: FixtureCase): Promise<FixtureResult[
     const first = table[0][1]
     const last = table.at(-1)![1]
     const swing = Math.abs(last - first)
+    /** The table voltage at `fraction` of its swing. */
     const level = (fraction: number): number => first + (last - first) * fraction
     const errors = table.map(([time, value]) => Math.abs(valueAt(rows, k + 1, time) - value) / swing)
     const error = Math.max(...errors)
@@ -106,11 +108,12 @@ export async function replayFixtures(input: FixtureCase): Promise<FixtureResult[
 }
 
 /** A receiver's DC pad current over -0.5 V..V_supply + 0.5 V against the sum of its clamp tables (IBIS: current into the pin). */
-export async function receiverCurrent(input: FixtureCase): Promise<{ model: string; corner: IbisCorner; maxErrorFraction: number; peakAmps: number; midSlopeOhms: number; pass: boolean }> {
+export async function receiverCurrent(input: FixtureCase): Promise<{ model: string; corner: IbisCorner; maxErrorFraction: number; peakAmps: number; rttOhms: number; pass: boolean }> {
   const document = parseIbis(input.text)
   const buffer = document.getBuffer(input.model)
   const supply = rails(document, input.model, input.corner)
   const compiled = compile(input, 'input', 1e-9)
+  /** A clamp table at `corner`; an absent clamp carries no current. */
   const table = (data: typeof buffer.powerClamp): [number, number][] => (data ?? [[-10, 0, 0, 0], [10, 0, 0, 0]]).map(([x, ...values]) => [x, cornerValue(values, input.corner, input.model)])
   const powerClamp = table(buffer.powerClamp)
   const groundClamp = table(buffer.groundClamp)
@@ -122,7 +125,9 @@ export async function receiverCurrent(input: FixtureCase): Promise<{ model: stri
   const expected = rows.map(([voltage]) => interpolate(powerClamp, supply - voltage) + interpolate(groundClamp, voltage))
   const peak = Math.max(...expected.map(Math.abs))
   const error = Math.max(...rows.map((row, i) => Math.abs(row[1] - expected[i]))) / peak
-  const middle = rows.findIndex(([voltage]) => voltage >= supply / 2)
-  const slope = (rows[middle + 1][1] - rows[middle - 1][1]) / (rows[middle + 1][0] - rows[middle - 1][0])
-  return { model: input.model, corner: input.corner, maxErrorFraction: error, peakAmps: peak, midSlopeOhms: 1 / slope, pass: error <= fixtureTolerance.currentFraction }
+  // DDR3 effective termination (JESD79-3F): RTT = (VIH(ac) - VIL(ac)) / (I(VIH(ac)) - I(VIL(ac))), VREF = V/2 +- 175 mV.
+  const high = supply / 2 + .175
+  const low = supply / 2 - .175
+  const rttOhms = (high - low) / (valueAt(rows, 1, high) - valueAt(rows, 1, low))
+  return { model: input.model, corner: input.corner, maxErrorFraction: error, peakAmps: peak, rttOhms, pass: error <= fixtureTolerance.currentFraction }
 }
