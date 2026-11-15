@@ -115,7 +115,7 @@ async function main(argv: string[]): Promise<void> {
     const { network, cells } = await predictStructure(circuit, structure)
     const file = join(out, `${structure.name}.s${network.ports}p`)
     await writeFile(file, writeTouchstone(network, [`${structure.name}: ${structure.what}`, `Predicted from examples/coupon/si-coupon.tsx by scripts/predict-coupon.tsx (routed 2.5D ladder, ${cells} series cells, ngspice AC).`,
-      'Connector bodies and SMA pads beyond the routed copper are not modelled; compare through the FIX2X 2x-thru.', `Port order: ${structure.ports.join(', ')}.`]))
+      'SMA pads enter as parallel-plate C; connector bodies are not modelled, so compare through the FIX2X 2x-thru.', `Port order: ${structure.ports.join(', ')}.`]))
     console.log(`${structure.name}: ${cells} cells, ${((performance.now() - started) / 1000).toFixed(1)} s -> ${file}`)
   }
 }

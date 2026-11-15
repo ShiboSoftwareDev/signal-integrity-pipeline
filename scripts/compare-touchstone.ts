@@ -121,13 +121,17 @@ export function tdrProfile(frequenciesHz: number[], s11: Complex[], referenceOhm
   const timesSeconds: number[] = []
   const impedanceOhms: number[] = []
   let reflection = 0
-  for (let n = 0; n * step <= span; n++) {
+  // The windowed impulse is symmetric about t = 0, so half of a reflection at the reference plane lies at negative
+  // time. Integrating from -lead keeps it (NanoVNA-Saver adds the reversed step for the same reason).
+  const lead = Math.ceil(Math.min(1e-9, 0.25 / spacing) / step)
+  for (let n = -lead; n * step <= span; n++) {
     let impulse = weights[0] * s11[0][0]
     for (let k = 1; k < count; k++) {
       const angle = 2 * Math.PI * k * n / samples
       impulse += 2 * weights[k] * (s11[k][0] * Math.cos(angle) - s11[k][1] * Math.sin(angle))
     }
     reflection += impulse / samples
+    if (n < 0) continue
     timesSeconds.push(n * step)
     impedanceOhms.push(referenceOhms * (1 + reflection) / (1 - reflection))
   }
@@ -240,7 +244,11 @@ export function compareNetworks(measured: Network, predicted: Network, ports: [n
     if (time > 2 * predictedDelay) return []
     const shifted = time + shiftSeconds
     const j = measuredTdr.timesSeconds.findIndex(t => t >= shifted)
-    return j > 0 ? [measuredTdr.impedanceOhms[j] - predictedTdr.impedanceOhms[i]] : []
+    if (j < 0) return []
+    if (j === 0) return [measuredTdr.impedanceOhms[0] - predictedTdr.impedanceOhms[i]]
+    const [t0, t1] = [measuredTdr.timesSeconds[j - 1], measuredTdr.timesSeconds[j]]
+    const [z0, z1] = [measuredTdr.impedanceOhms[j - 1], measuredTdr.impedanceOhms[j]]
+    return [z0 + (z1 - z0) * (shifted - t0) / (t1 - t0) - predictedTdr.impedanceOhms[i]]
   })
   const tdr = { rmsErrorOhms: Math.sqrt(errors.reduce((sum, e) => sum + e * e, 0) / errors.length), maxErrorOhms: Math.max(...errors.map(Math.abs)), shiftSeconds }
   return { ports, thru, rows, s21, delay, z0, tdr, pass: s21.pass && delay.pass && z0.pass }
