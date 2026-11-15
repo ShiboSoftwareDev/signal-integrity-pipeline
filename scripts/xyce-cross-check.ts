@@ -110,28 +110,16 @@ async function timed(cwd: string, command: string, args: string[]): Promise<{ se
   return { seconds: (performance.now() - started) / 1000, peakRssMiB: bytes ? Number(bytes[1]) / 2 ** 20 : kib ? Number(kib[1]) / 1024 : null, stdout }
 }
 
-/** CLI value after `--name`. */
-function argument(name: string): string | undefined {
-  const index = process.argv.indexOf(name)
-  return index < 0 ? undefined : process.argv[index + 1]
-}
+export interface CrossCheckRun extends CrossCheck { mutual: XyceMutual; ngspice: { seconds: number; peakRssMiB: number | null } | 'capture'; xyce: { seconds: number; peakRssMiB: number | null; steps: number | null } }
 
-if (import.meta.main) {
-  const [deckPath, outPath] = process.argv.slice(2)
-  const mutual = (argument('--mutual') ?? 'vcvs') as XyceMutual
-  if (!deckPath || !outPath || !['vcvs', 'native'].includes(mutual)) throw new Error('Usage: tsx scripts/xyce-cross-check.ts <simulation.cir> <outdir> [--mutual vcvs|native] [--capture capture.json --evidence evidence.json]')
-  const out = resolve(outPath)
+/** Translate `deck`, run ngspice (unless its waveforms are given) and Xyce in `out`, compare and write report.json. */
+export async function runCrossCheck(deck: string, out: string, mutual: XyceMutual, given?: Waveforms): Promise<CrossCheckRun> {
   await mkdir(out, { recursive: true })
-  const deck = await readFile(deckPath, 'utf8')
   await writeFile(join(out, 'simulation.cir'), deck)
   await writeFile(join(out, 'xyce.cir'), xyceDeck(deck, { mutual, printFile: 'waveform.csv' }))
-  const capturePath = argument('--capture')
-  let ngspice: Waveforms
+  let ngspice = given
   let ngspiceRun: Awaited<ReturnType<typeof timed>> | undefined
-  if (capturePath) {
-    const evidence = JSON.parse(await readFile(argument('--evidence')!, 'utf8')) as { probes: { name: string; signalNode: string; referenceNode: string }[] }
-    ngspice = ngspiceCapture(JSON.parse(await readFile(capturePath, 'utf8')), evidence.probes)
-  } else {
+  if (!ngspice) {
     ngspiceRun = await timed(out, 'ngspice', ['-n', '-b', '-r', 'waveform.raw', 'simulation.cir'])
     await writeFile(join(out, 'ngspice.log'), ngspiceRun.stdout)
     ngspice = ngspiceRaw(await readFile(join(out, 'waveform.raw'), 'utf8'))
@@ -140,8 +128,25 @@ if (import.meta.main) {
   await writeFile(join(out, 'xyce.log'), xyceRun.stdout)
   const steps = /Number Successful Steps Taken:\s*(\d+)/.exec(xyceRun.stdout)?.[1]
   const result = compareWaveforms(ngspice, xyceColumns(await readFile(join(out, 'waveform.csv'), 'utf8')))
-  const report = { ...result, mutual, ngspice: ngspiceRun ? { seconds: ngspiceRun.seconds, peakRssMiB: ngspiceRun.peakRssMiB } : 'capture', xyce: { seconds: xyceRun.seconds, peakRssMiB: xyceRun.peakRssMiB, steps: steps ? Number(steps) : null }, tolerance: CROSS_CHECK_TOLERANCE }
-  await writeFile(join(out, 'report.json'), JSON.stringify(report, null, 2))
-  console.log(JSON.stringify({ ...report, nodes: report.nodes.filter(node => !node.pass).length ? report.nodes.filter(node => !node.pass) : `${report.nodes.length} nodes pass`, worstV: Math.max(...report.nodes.map(node => node.maximumDifferenceV)), worstCrossingS: Math.max(0, ...report.nodes.map(node => node.maximumCrossingDifferenceS ?? 0)) }, null, 2))
+  const report: CrossCheckRun = { ...result, mutual, ngspice: ngspiceRun ? { seconds: ngspiceRun.seconds, peakRssMiB: ngspiceRun.peakRssMiB } : 'capture', xyce: { seconds: xyceRun.seconds, peakRssMiB: xyceRun.peakRssMiB, steps: steps ? Number(steps) : null } }
+  await writeFile(join(out, 'report.json'), JSON.stringify({ ...report, tolerance: CROSS_CHECK_TOLERANCE }, null, 2))
+  return report
+}
+
+/** CLI value after `--name`. */
+function argument(name: string): string | undefined {
+  const index = process.argv.indexOf(name)
+  return index < 0 ? undefined : process.argv[index + 1]
+}
+
+if (import.meta.main) {
+  const [deckPath, outPath] = process.argv.slice(2)
+  const mutual = argument('--mutual') ?? 'vcvs'
+  if (!deckPath || !outPath || (mutual !== 'vcvs' && mutual !== 'native')) throw new Error('Usage: tsx scripts/xyce-cross-check.ts <simulation.cir> <outdir> [--mutual vcvs|native] [--capture capture.json --evidence evidence.json]')
+  const capture = argument('--capture')
+  const given = capture ? ngspiceCapture(JSON.parse(await readFile(capture, 'utf8')), JSON.parse(await readFile(argument('--evidence')!, 'utf8')).probes) : undefined
+  const report = await runCrossCheck(await readFile(deckPath, 'utf8'), resolve(outPath), mutual, given)
+  const failed = report.nodes.filter(node => !node.pass)
+  console.log(JSON.stringify({ ...report, nodes: failed.length ? failed : `${report.nodes.length} nodes pass`, worstV: Math.max(...report.nodes.map(node => node.maximumDifferenceV)), worstCrossingS: Math.max(0, ...report.nodes.map(node => node.maximumCrossingDifferenceS ?? 0)) }, null, 2))
   process.exitCode = report.pass ? 0 : 1
 }

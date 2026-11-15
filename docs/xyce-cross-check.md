@@ -22,7 +22,8 @@ How the numbers are measured (`scripts/xyce-cross-check.ts`):
 - Each engine keeps its own adaptive time points. ΔV is taken both ways: ngspice samples against
   Xyce's linear interpolant, and Xyce samples against ngspice's.
 - The 50 % level is the midpoint of the node's ngspice range. A crossing is counted once per excursion
-  beyond ±10 % of the swing (hysteresis), so noise near the level is not counted.
+  beyond ±10 % of the swing (hysteresis), at the last level crossing before the band is left, so
+  ripple near the level is not counted.
 - Crossings are paired in order.
 
 Why these numbers:

@@ -128,7 +128,7 @@ export function xyceDeck(deck: string, options: XyceDeckOptions): string {
     else throw new Error(`Untranslated element: ${tokens[0]}`)
   }
   if (options.mutual === 'vcvs') for (const entry of scopes) mutualChains(entry, lines)
-  return lines.filter(line => line !== undefined).join('\n') + '\n'
+  return lines.filter(line => line !== undefined).join('\n').trimEnd() + '\n'
 }
 
 /** CLI value after `--name`. */
