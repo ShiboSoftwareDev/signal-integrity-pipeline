@@ -27,12 +27,12 @@ const synthetic: SolverContext = { progress: (): void => undefined, runSolver: a
 } }
 
 /** Run every stage and return the deck, the field panel count and the capture. */
-async function solve(problem: RoutedProblem, context: SolverContext): Promise<{ deck: string; panels: number; capture: RefinementCapture }> {
+async function solve(problem: RoutedProblem, context: SolverContext): Promise<{ deck: string; cells: number; panels: number; capture: RefinementCapture }> {
   const root = new RoutedPipelineSolver(problem, context)
   await root.solveAsync()
   const block = root.getOutput().blocks[0]
   const fields = root.stageOutput('RouteFieldsSolver').artifacts.find(artifact => artifact.path.endsWith('fields.json'))!
-  return { deck: block.compiled.deck, panels: JSON.parse(fields.body).panelsPerEdge, capture: block.capture }
+  return { deck: block.compiled.deck, cells: Number(block.compiled.evidence.cells), panels: JSON.parse(fields.body).panelsPerEdge, capture: block.capture }
 }
 
 test('edge metrics count each full swing once, at its last 50% crossing', () => {
@@ -50,12 +50,10 @@ test('refinement overrides change only their own knob in the compiled deck', asy
   const ladder = await solve({ ...problem, refinement: 2 }, synthetic)
   const timestep = await solve({ ...problem, stepSeconds: step / 2 }, synthetic)
   const panels = await solve({ ...problem, panels: 18 }, synthetic)
-  /** Ladder cell count from a deck's series inductors. */
-  const cells = (deck: string): number => deck.split('\n').filter(line => /^L/i.test(line)).length
   assert.equal(base.panels, 12)
-  assert.ok(cells(ladder.deck) >= 2 * cells(base.deck) - 6, `${cells(ladder.deck)} vs ${cells(base.deck)} cells`)
+  assert.ok(ladder.cells >= 2 * base.cells - 3, `${ladder.cells} vs ${base.cells} cells`)
   assert.equal(Number(/^\.tran (\S+)/m.exec(timestep.deck)![1]), step / 2)
-  assert.equal(cells(timestep.deck), cells(base.deck))
+  assert.equal(timestep.cells, base.cells)
   assert.equal(panels.panels, 18)
   assert.notEqual(panels.deck, base.deck)
 })
