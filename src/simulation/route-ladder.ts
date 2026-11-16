@@ -1,4 +1,4 @@
-import { causalLossPoles, causalLossResponse, referenceSeries, type ExtractedRoutes, type ExtractedRouteSlice, type RouteReturn } from '../extraction'
+import { causalLossPoles, causalLossResponse, referenceSeries, skinCrossover, type ExtractedRoutes, type ExtractedRouteSlice, type RouteReturn } from '../extraction'
 import { RouteEnergy, seriesEnergy, shuntEnergy, skinEnergy } from './route-energy'
 import { type RouteWire, type RouteXY } from '../board'
 
@@ -137,6 +137,8 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       }
     }
   }
+  // The trace's own DC and skin terms set its crossover, before a hybrid return adds return-path resistance.
+  const crossover = cells.map((_, i) => skinCrossover(R.rows[i].get(i) ?? 0, skin.rows[i].get(i) ?? 0))
   if (returnPath) {
     const weights = cells.map(cell => {
       const index = returnPath.traces.findIndex(trace => trace.source === cell.wire.source)
@@ -170,7 +172,7 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   seriesEnergy(lines, 'ARCD', before, current, R, 'R')
   if (returnPath?.model !== 'series') {
     const stages = causalLossPoles().map((_, p) => cells.map((_, i) => `ARCp${p}n${i}`))
-    skinEnergy(lines, 'ARC', current, stages, skin, causalLossPoles())
+    skinEnergy(lines, 'ARC', current, stages, skin, causalLossPoles(), crossover)
     current = stages.at(-1)!
   }
   seriesEnergy(lines, 'ARCL', current, after, L, 'L')

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
+import { causalLossResponse, skinCrossover, solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
 import { coupledMicrostrip, coupledStripline, pozarStriplineAttenuation, singleMicrostrip, stripline } from './cross-section-reference'
 import { sectionFixture } from './cross-section-fixtures'
 import { energyFacts, maxwellFacts } from '../support/golden-checks'
@@ -69,12 +69,11 @@ test('2D extraction: independent single/coupled formulas, matrix energy, loss, c
     }
     assert.ok(maximum < .02, `${kind} ${count}: worst C/L/Z/delay/mutual error ${maximum}`)
     rows.push({ fixture: `${kind} ${count}`, panels: result.diagnostics.panels, ms: +elapsed.toFixed(2), worstErrorPercent: +(100 * maximum).toFixed(3) })
-    for (const matrix of [result.C, result.C0, result.L, result.dielectricLoss, result.skinResistance, result.atFrequency(1e9).R, result.atFrequency(1e9).G]) {
+    for (const matrix of [result.C, result.C0, result.L, result.dielectricLoss, result.skinResistance]) {
       positive(matrix)
       for (let i = 0; i < count; i++) for (let j = 0; j < count; j++) assert.ok(Math.abs(matrix[i][j] - matrix[j][i]) < 1e-14 * Math.abs(matrix[i][i]))
     }
     assert.ok(result.diagnostics.reciprocityResidual < .005)
-    assert.deepEqual(result.atFrequency(0), { R: result.dcResistance, G: result.C.map(row => row.map(() => 0)) })
   }
   const fixture = sectionFixture('microstrip', 2)
   const start = performance.now()
@@ -90,7 +89,7 @@ test('2D extraction: independent single/coupled formulas, matrix energy, loss, c
     const begin = performance.now()
     const result = solveCrossSection(sectionFixture(kind, 12))
     const elapsed = performance.now() - begin
-    for (const matrix of [result.C, result.C0, result.L, result.skinResistance, result.atFrequency(1e9).R, result.atFrequency(1e9).G]) positive(matrix)
+    for (const matrix of [result.C, result.C0, result.L, result.skinResistance]) positive(matrix)
     assert.ok(result.diagnostics.reciprocityResidual < .005)
     assert.ok(result.C.every((row, i) => row.every((value, j) => i === j ? value > 0 : value <= 0)))
     rows.push({ fixture: `${kind} 12`, panels: result.diagnostics.panels, ms: +elapsed.toFixed(2), rawReciprocityPercent: +(result.diagnostics.reciprocityResidual * 100).toFixed(3) })
@@ -140,6 +139,11 @@ function invert(matrix: Matrix): Matrix {
     }
   }
   return a.map(row => row.slice(n))
+}
+
+/** Series resistance the ladder realizes for one conductor: R_dc plus the crossover-shifted causal skin network. */
+function realized(dc: number, skin: number, frequency: number): number {
+  return dc + skin * causalLossResponse(frequency, skinCrossover(dc, skin)).skinReal
 }
 
 /** Surface resistance divided by sqrt(f): Rs = rho/delta = sqrt(pi f mu0 / sigma), delta = sqrt(rho/(pi f mu0)). */
@@ -236,6 +240,7 @@ test('golden stage 3: DC resistance R = rho l / A and its low-frequency limit', 
   // R per metre = 1/(sigma w t) exactly; infinite planes carry no DC resistance in this model. At 1 kHz the skin
   // depth (2 mm in copper) is ~60x the thickness, so true R(f)/R_dc - 1 ~ (t/delta)^4 << 1e-3 (Ramo, Whinnery & Van Duzer,
   // Fields and Waves, section 5.6): tolerance 1e-3 at 1 kHz, exact equality at f = 0, 1e-12 relative for R_dc.
+  // R(f) is the series resistance the ladder realizes: R_dc + S Re[z(jw + shift) - z(shift)] (causal-loss.ts).
   const section: CrossSection = {
     conductors: [{ id: 'cu', xMm: -.3, zMm: .4825, widthMm: .2, thicknessMm: .035 }, { id: 'alloy', xMm: .3, zMm: .491, widthMm: .15, thicknessMm: .018, conductivitySm: 3.5e7 }],
     planes: [{ zMm: 0 }, { zMm: 1 }], dielectrics: [{ zMm: 0, thicknessMm: 1, er: 4, lossTangent: .01 }],
@@ -245,28 +250,18 @@ test('golden stage 3: DC resistance R = rho l / A and its low-frequency limit', 
   const failures: string[] = []
   for (const [i, value] of expected.entries()) {
     if (!(Math.abs(line.dcResistance[i][i] / value - 1) <= 1e-12)) failures.push(`R_dc ${i}: ${line.dcResistance[i][i]} vs ${value}`)
-    const low = line.atFrequency(1e3).R[i][i] / value - 1
+    const low = realized(line.dcResistance[i][i], line.skinResistance[i][i], 1e3) / value - 1
     console.log(`conductor ${i}: R_dc ${value.toFixed(6)} ohm/m; R(1 kHz)/R_dc - 1 = ${low.toExponential(3)}`)
     if (!(low >= 0 && low <= 1e-3)) failures.push(`R(1 kHz) ${i}: relative excess ${low}`)
   }
   if (line.dcResistance[0][1] !== 0 || line.dcResistance[1][0] !== 0) failures.push('ideal planes must not couple DC resistance')
-  assert.deepEqual(line.atFrequency(0).R, line.dcResistance)
+  assert.deepEqual(expected.map((_, i) => realized(line.dcResistance[i][i], line.skinResistance[i][i], 0)), expected.map((_, i) => line.dcResistance[i][i]))
   assert.deepEqual(failures, [])
 })
 
 // High-frequency conductor loss. Wheeler, "Formulas for the skin effect", Proc. IRE 30 (1942) 412–424:
 // R = (Rs/mu0) dL/dn with every wall receded by n, Rs = sqrt(pi f mu0/sigma) = rho/delta. Each check has its own
 // a-priori tolerance, stated beside it.
-test('golden stage 3: R(f) scales as sqrt(f) once delta << t', () => {
-  // (a) exponent d ln R/d ln f between 10 and 40 GHz within [0.49, 0.5]: delta = 0.66 um << t = 35 um there.
-  const rows = [.5, 1, 2].map(ratio => {
-    const line = solveCrossSection(centred(ratio, 1, .035))
-    return { wOverB: ratio, exponent: Math.log(line.atFrequency(4e10).R[0][0] / line.atFrequency(1e10).R[0][0]) / Math.log(4) }
-  })
-  console.table(rows)
-  assert.ok(rows.every(row => row.exponent >= .49 && row.exponent <= .5 + 1e-9))
-})
-
 test('golden stage 3: skin resistance equals Wheeler\'s rule recomputed independently', () => {
   // (b) Wheeler's rule recomputed here: own recession (planes move away, strips shrink), own step 5e-4 mm vs the
   // solver's ~1.75e-4 mm, from the solver's vacuum L = mu0 eps0 C0^-1. Within 1%: both are central differences of
@@ -337,9 +332,10 @@ test('golden invariants: extracted L, C0, C are SPD with |k| < 1, C is Maxwell, 
       const facts = maxwellFacts(line[name])
       if (!(facts.minimumDiagonal > 0 && facts.maximumOffDiagonal < (section.conductors.length > 1 ? 0 : 1) && facts.minimumRowSum >= -1e-9)) failures.push(`${label} ${name} Maxwell: ${JSON.stringify(facts)}`)
     }
-    for (const frequency of [0, 1e6, 1e9, 1e10]) for (const [name, matrix] of Object.entries(line.atFrequency(frequency))) {
-      const facts = energyFacts(matrix)
-      if (!(matrix.every((row, i) => row[i] >= 0) && facts.minimumEigenvalue >= -1e-12 * Math.abs(facts.maximumEigenvalue))) failures.push(`${label} ${name}(${frequency}): ${JSON.stringify(facts)}`)
+    // The ladder scales each loss matrix by a nonnegative network response (check 12), so PSD matrices give PSD R(f), G(f).
+    for (const name of ['dcResistance', 'skinResistance', 'dielectricLoss'] as const) {
+      const facts = energyFacts(line[name])
+      if (!(line[name].every((row, i) => row[i] >= 0) && facts.minimumEigenvalue >= -1e-12 * Math.abs(facts.maximumEigenvalue))) failures.push(`${label} ${name}: ${JSON.stringify(facts)}`)
     }
     rows.push({ section: label, smallestEigenvalueRatio: +minimum.toExponential(3), largestCouplingK: +coupling.toFixed(4) })
   }

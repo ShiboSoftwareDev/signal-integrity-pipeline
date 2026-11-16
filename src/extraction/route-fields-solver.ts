@@ -50,8 +50,7 @@ export class RouteFieldsSolver extends BaseSolver {
     if (!line) {
       const start = performance.now()
       try {
-        const { atFrequency: _atFrequency, ...coefficients } = solveCrossSection(section, { panelsPerEdge: this.input.panels ?? 12 })
-        line = snapshot(coefficients)
+        line = snapshot(solveCrossSection(section, { panelsPerEdge: this.input.panels ?? 12 }))
       } catch (error) {
         throw Object.assign(error as Error, { routeSection: section, wires: slice.wires, references: slice.references, solved: this.cache.size, solveMilliseconds: this.solveMilliseconds })
       }

@@ -22,10 +22,6 @@ test('layered/mask energy sensitivity and Wheeler loss approach the analytic par
   assert.ok(Math.abs(result.dielectricLoss[0][0] / expectedLoss - 1) < .01)
   assert.ok(Math.abs(result.skinResistance[0][0] / expectedSkin - 1) < .02)
   assert.ok(Math.abs(result.dcResistance[0][0] * (5.8e7 * .1 * .000035) - 1) < 1e-14)
-  const low = result.atFrequency(1)
-  const high = result.atFrequency(1e12)
-  assert.ok(Math.abs(low.R[0][0] / result.dcResistance[0][0] - 1) < 1e-6)
-  assert.ok(Math.abs(high.R[0][0] / (1e6 * result.skinResistance[0][0]) - 1) < 1e-5)
   // Finite difference is an independent oracle for the analytic directional sensitivity.
   const step = .001
   const plus = solveCrossSection({ ...section, dielectrics: section.dielectrics.map(d => ({ ...d, er: d.er * (1 + step * d.lossTangent) })) })

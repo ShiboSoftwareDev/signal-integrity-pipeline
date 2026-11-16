@@ -11,7 +11,7 @@ export interface ExtractedRoutes {
   coupling: RouteCoupling[]
 }
 export interface RouteMaterials { maskMm: number; maskEr: number; maskLoss: number; substrateLoss: number }
-export type RouteCoefficients = Omit<CrossSectionResult, 'atFrequency'>
+export type RouteCoefficients = CrossSectionResult
 
 /** Material slabs fill absent copper layers with the nearest laminate (rather than fictitious air gaps). */
 export function routeCrossSection(geometry: SectionGeometry, slice: RouteSlice, materials: RouteMaterials): CrossSection {

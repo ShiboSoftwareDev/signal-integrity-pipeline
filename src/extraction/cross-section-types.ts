@@ -46,8 +46,6 @@ export interface CrossSectionResult {
   /** High-frequency Wheeler resistance divided by sqrt(f in Hz), in ohm/m/sqrt(Hz). */
   skinResistance: Matrix
   diagnostics: { panels: number; reciprocityResidual: number; recessionMm: number }
-  /** R uses a passive DC/skin interpolation; G uses material energy sensitivity. */
-  atFrequency: (frequencyHz: number) => { R: Matrix; G: Matrix }
 }
 
 export const sectionEpsilon0 = 8.8541878128e-12

@@ -17,13 +17,28 @@ export function causalLossPoles(): LossPole[] {
   })
 }
 
-/** AC response of the implemented unit skin impedance / unit dielectric admittance, for fit evidence. */
-export function causalLossResponse(frequency: number): { skinReal: number; skinImaginary: number; dielectricReal: number; dielectricCapacitance: number } {
+/**
+ * Rate shift that turns R_dc + S z(s) into R_dc + S (z(s + shift) - z(shift)). With z(s) = sqrt(s / pi), the series
+ * impedance becomes sqrt(R_dc^2 + S^2 s / pi): exactly R_dc at DC, rising as f^2 just above it, and S (1 + j) sqrt(f)
+ * once skin effect dominates. The plain sum R_dc + S z(s) counts both asymptotes at once through the crossover.
+ */
+export function skinCrossover(dcResistance: number, skinResistance: number): number {
+  return skinResistance > 0 ? Math.PI * (dcResistance / skinResistance) ** 2 : 0
+}
+
+/** Foster stages of z(s + shift) - z(shift): every R || L stage keeps positive elements, so it stays passive. */
+export function crossoverPoles(poles: LossPole[], shift: number): LossPole[] {
+  return poles.map(pole => ({ rate: pole.rate + shift, skin: pole.skin * pole.rate / (pole.rate + shift), dielectric: pole.dielectric }))
+}
+
+/** AC response of the implemented unit skin impedance (shifted by `shift`) / unit dielectric admittance, for fit evidence. */
+export function causalLossResponse(frequency: number, shift: number = 0): { skinReal: number; skinImaginary: number; dielectricReal: number; dielectricCapacitance: number } {
   const omega = 2 * Math.PI * frequency
   const poles = causalLossPoles()
+  const skin = crossoverPoles(poles, shift)
   return {
-    skinReal: poles.reduce((sum, pole) => sum + pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), 0),
-    skinImaginary: poles.reduce((sum, pole) => sum + pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2), 0),
+    skinReal: skin.reduce((sum, pole) => sum + pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), 0),
+    skinImaginary: skin.reduce((sum, pole) => sum + pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2), 0),
     dielectricReal: poles.reduce((sum, pole) => sum + pole.dielectric * pole.rate * omega ** 2 / (pole.rate ** 2 + omega ** 2), 0),
     dielectricCapacitance: poles.reduce((sum, pole) => sum + pole.dielectric * pole.rate ** 2 / (pole.rate ** 2 + omega ** 2), 0),
   }

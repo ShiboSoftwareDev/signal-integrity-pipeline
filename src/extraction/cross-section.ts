@@ -85,20 +85,5 @@ export function solveCrossSection(section: CrossSection, options: CrossSectionOp
   for (const matrix of [C, C0, L]) sectionPassive(matrix, true)
   for (const matrix of [dielectricLoss, skinResistance]) sectionPassive(matrix)
   for (const [i, c] of section.conductors.entries()) dcResistance[i][i] = 1e6 / ((c.conductivitySm ?? copperConductivity) * c.widthMm * c.thicknessMm)
-  /** A diagonal congruence preserves coupled skin-loss passivity and gives hypot(Rdc, Rskin)
-   * on every diagonal. The crossover is an interpolation, not an eddy-current field solution.
-   */
-  const atFrequency = (frequencyHz: number): { R: Matrix; G: Matrix } => {
-    if (!Number.isFinite(frequencyHz) || frequencyHz < 0) fail('model_frequency', 'Finite nonnegative cross-section frequency required')
-    const root = Math.sqrt(frequencyHz)
-    const weights = dcResistance.map((row, i) => {
-      const skin = root * skinResistance[i][i]
-      return skin > 0 ? Math.sqrt(skin / (Math.hypot(row[i], skin) + row[i])) : 0
-    })
-    return {
-      R: dcResistance.map((row, i) => row.map((value, j) => value + root * skinResistance[i][j] * weights[i] * weights[j])),
-      G: dielectricLoss.map(row => row.map(value => frequencyHz ? 2 * Math.PI * frequencyHz * value : 0)),
-    }
-  }
-  return { conductorIds: section.conductors.map(c => c.id), C, C0, L, dielectricLoss, dcResistance, skinResistance, atFrequency, diagnostics: { panels, reciprocityResidual: residual, recessionMm } }
+  return { conductorIds: section.conductors.map(c => c.id), C, C0, L, dielectricLoss, dcResistance, skinResistance, diagnostics: { panels, reciprocityResidual: residual, recessionMm } }
 }

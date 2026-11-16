@@ -36,7 +36,6 @@ test('cross-section mesh preserves references, rejects invalid geometry and coal
     assert.throws(() => solveCrossSection({ ...section, conductors: [section.conductors[0], section.conductors[0]] }), { code: 'native_geometry' })
     assert.throws(() => solveCrossSection({ ...section, dielectrics: [...section.dielectrics, section.dielectrics[0]] }), { code: 'native_geometry' })
     assert.throws(() => solveCrossSection(section, { panelsPerEdge: 1 }), { code: 'mesh_convergence' })
-    assert.throws(() => original.atFrequency(-1), { code: 'model_frequency' })
   }
   const circuit = await renderCoreSignals(<AlignedEdges />)
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!

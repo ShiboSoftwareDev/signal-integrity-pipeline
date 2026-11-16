@@ -223,7 +223,7 @@ test('golden stage 6: settled voltage equals the DC divider including the line r
   assert.ok(Math.abs(near - expectedNear) <= 1e-5 && Math.abs(far - expectedFar) <= 1e-5, `near ${near} vs ${expectedNear}, far ${far} vs ${expectedFar}`)
 })
 
-test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native, todo: 'fails: ladder alpha is 27-45% high from 10 to 220 MHz and 11.6% high at 5 GHz (R_dc + S z(s) counts both asymptotes)' }, async context => {
+test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native }, async context => {
   if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
   // The simulated line itself: 100 mm of the DDR3 board's inner trace (0.1 x 0.0152 mm, centred in b = 0.2152 mm,
   // er 4.1, lossless dielectric so only conductor loss remains). ngspice AC drives the near end with 1 A and leaves the

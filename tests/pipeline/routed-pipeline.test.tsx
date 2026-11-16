@@ -34,8 +34,8 @@ test('TSX two-trace routed deck pins the single coupled skin multiport and decla
   assert.equal(result.evidence.geometry_wires, 2)
   assert.equal(result.evidence.sections, 1)
   // V8 and JavaScriptCore differ in the final digits of the unchanged BEM coefficients.
-  const expected = process.versions.bun ? '5ff55fb2ff11d3adae7e90986151071729e3ac338005d7348ca724ca794b6f12' : '700c4c6d6781e93e6da31d1b9001104e0b93d48897c2200536906d79a9bed2bb'
-  assert.equal(Buffer.byteLength(result.deck), 20684)
+  const expected = process.versions.bun ? 'c563df198c71fe8c331f0e4b3b516132d01f9f0536bf9e3bf98efd43f8444fdd' : 'ec8100fd37a15cf86f0a72a1bedc3b6e9987d2c38850c62252f2c551a4dad23f'
+  assert.equal(Buffer.byteLength(result.deck), 20692)
   assert.equal(sha256(result.deck), expected, 'full deck bytes, including vendor compilation and coupling, pinned per JS engine')
 })
 
@@ -119,7 +119,7 @@ test('default two-trace TSX deck retains the measured driver lead-in and capture
   solver.solveUntilStage('RouteTransientSolver')
   assert.equal(solver.stageOutput('RoutedAdmissionSolver').value[0].bindings.options.durationSeconds, 40e-9)
   const deck = solver.stageOutput('RouteNetworkSolver').value[0]
-  if (!process.versions.bun) assert.equal(sha256(deck.deck), 'b60c52aa91ac8ec4f1d1e37a117408ef82e12472e0fe4053bae180087edc076d', 'default two-trace deck pins the deliberate single skin multiport realization')
+  if (!process.versions.bun) assert.equal(sha256(deck.deck), 'eb4be0bd031582be7125d9d88b313c658451e7646b3706887c24391b8f1f2d0f', 'default two-trace deck pins the deliberate single skin multiport realization')
   const values = /^VKU0 .*PWL\((.+)\)$/m.exec(deck.deck)![1].split(/\s+/).map(Number)
   const weights = values.filter((_, i) => i % 2 === 0).map((time, i) => [time, values[2 * i + 1]])
   // The old 2.5 ns trigger plus preserved lead-in fell outside its 4 ns capture.

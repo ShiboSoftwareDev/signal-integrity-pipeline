@@ -88,13 +88,19 @@ one current-controlled source returns the same current to Vb. No nonlinear
 voltage expression is needed for these linear energy terms. General PSD
 matrices fall back to LDL energy factors, never a silent sign correction.
 
-Nine logarithmically spaced poles (10 kHz–1 THz) approximate the Stieltjes integral
-`sqrt(s) = integral(s/(s+p)/sqrt(p), p=0..infinity)/pi`.
-Each skin branch is an R matrix in parallel with L=R/p; the positive coefficient
-is `sqrt(p)*delta(log p)/(pi*sqrt(pi))` times Wheeler's skin matrix. The result is
-DC R plus a causal finite-band skin impedance, including the required reactive
-part. It deliberately differs from the standalone solver's real-only hypot
-interpolation near the DC crossover. Mutual skin loss is retained.
+Nine logarithmically spaced poles (10^6.25–10^10.5 Hz) with nonnegative weights
+fitted over 10 MHz–5 GHz approximate `z(s) = sqrt(s/pi)`, i.e. `(1 + j) sqrt(f)`.
+Each skin branch is an R in parallel with L = R/p, scaled by Wheeler's skin matrix S.
+The series impedance is `R_dc + S (z(s + w_c) - z(w_c))` with `w_c = pi (R_dc/S)^2`
+(`skinCrossover`): every stage keeps positive R and L, the rate moves to p + w_c and R
+to R p/(p + w_c). For one conductor this is `sqrt(R_dc^2 + S^2 s/pi)`: exactly R_dc at
+DC, Wheeler's `S (1 + j) sqrt(f)` once skin effect dominates, and no double counting
+through the crossover. Rows coupled by mutual skin terms share one `w_c`, the geometric
+mean of their own, because V = S diag(z_j) I is reciprocal only with equal z_j. Mutual
+skin loss is retained. Against an independent filament solve of the strip and planes,
+R(f) is within −8.7% to +5.7% from 10 MHz to 5 GHz on a 0.1 × 0.0152 mm and a
+0.2 × 0.035 mm stripline, and the ladder's AC attenuation within −8.7% to +3.4%
+(golden checks 27 and 28). Roughness is not modelled: no roughness input exists.
 
 Dielectric loss uses positive series-RC Debye branches with matrix capacitance
 `2*delta(log p)/pi * dielectricLoss`. The base C is reduced so the reactive C

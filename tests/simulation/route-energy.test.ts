@@ -47,16 +47,18 @@ test('normalized reciprocal resistance obeys V = R I down to tiny Foster voltage
 })
 
 test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps uncoupled rows scalar', () => {
+  // Rows a, b, c are one coupled group: their own crossovers 1e7, 4e7, 1.6e8 rad/s share the geometric mean 4e7.
   const matrix = [[4e-6, 1e-6, 0], [1e-6, 9e-6, -3e-6], [0, -3e-6, 16e-6]]
   const currents = [2e-3, -1e-3, 3e-3]
   const poles = causalLossPoles()
   const lines: string[] = []
-  skinEnergy(lines, 'T', ['a', 'b', 'c'], poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), energy(matrix), poles)
+  skinEnergy(lines, 'T', ['a', 'b', 'c'], poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), energy(matrix), poles, [1e7, 4e7, 1.6e8])
+  const shifted = poles.map(pole => ({ rate: pole.rate + 4e7, skin: pole.skin * pole.rate / (pole.rate + 4e7) }))
   assert.equal(lines.filter(line => line.startsWith('K')).length, 0, 'no per-pole mutual inductance layers')
   for (const frequency of [1e6, 1e9, 2e10]) {
     const omega = 2 * Math.PI * frequency
     // Complex numbers as [real, imaginary]; z_p = skin jw / (jw + rate).
-    const stage = poles.map(pole => [pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2)])
+    const stage = shifted.map(pole => [pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2)])
     const z = stage.reduce(([re, im], [a, b]) => [re + a, im + b], [0, 0])
     const nodes = new Map<string, number[]>([['0', [0, 0]]])
     for (const [i, node] of ['a', 'b', 'c'].entries()) {
@@ -83,9 +85,10 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
     }
   }
   const diagonal: string[] = []
-  skinEnergy(diagonal, 'D', ['a', 'b'], [['c', 'd'], ['e', 'f']], energy([[1e-4, 0], [0, 2e-4]]), [{ rate: 10, skin: 2, dielectric: 0 }, { rate: 100, skin: 3, dielectric: 0 }])
-  assert.deepEqual(diagonal, ['RDS00 a c 0.0002', 'RDS01 b d 0.0004', 'LDP00 a c 0.00002', 'LDP01 b d 0.00004',
-    'RDS10 c e 0.0003', 'RDS11 d f 0.0006', 'LDP10 c e 0.000003', 'LDP11 d f 0.000006'])
+  // Uncoupled rows keep their own shift: row b's 90 rad/s gives stages (rate 100, skin 2 * 10/100) and (190, 3 * 100/190).
+  skinEnergy(diagonal, 'D', ['a', 'b'], [['c', 'd'], ['e', 'f']], energy([[1e-4, 0], [0, 2e-4]]), [{ rate: 10, skin: 2, dielectric: 0 }, { rate: 100, skin: 3, dielectric: 0 }], [0, 90])
+  assert.deepEqual(diagonal, ['RDS00 a c 0.0002', 'RDS01 b d 0.00004', 'LDP00 a c 0.00002', 'LDP01 b d 4e-7',
+    'RDS10 c e 0.0003', 'RDS11 d f 0.000315789473684', 'LDP10 c e 0.000003', 'LDP11 d f 0.0000016620498615'])
 })
 
 test('sparse Maxwell shunts preserve dense row sums, pair ordering and Foster loss', () => {

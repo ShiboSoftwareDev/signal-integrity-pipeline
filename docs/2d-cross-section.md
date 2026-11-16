@@ -19,7 +19,6 @@ const line = solveCrossSection({
   planes: [{ zMm: 0 }],
   dielectrics: [{ zMm: 0, thicknessMm: .0994, er: 4.1, lossTangent: .02 }],
 })
-const { R, G } = line.atFrequency(1e9)
 ```
 
 Geometry is in **mm**; z increases upwards, conductor x is its centre, and z is
@@ -39,8 +38,6 @@ are reflected internally. IDs and matrix order follow the caller's conductor ord
 | dielectricLoss | F/m; sum of material energy sensitivities weighted by loss tangent |
 | dcResistance | ohm/m; signal bulk resistance; infinite reference has zero DC resistance |
 | skinResistance | ohm/m/sqrt(Hz); coupled high-frequency Wheeler loss coefficient |
-| atFrequency(f).R | ohm/m; passive interpolation between DC and skin-effect asymptotes |
-| atFrequency(f).G | S/m; `2*pi*f*dielectricLoss` |
 | diagnostics | panel count, **raw** reciprocity residual and wall differentiation step |
 
 Default options are `panelsPerEdge: 12`, `interfaceExtent: 24`, and
@@ -104,15 +101,15 @@ coupling. See Wheeler, “Formulas for the Skin Effect,” *Proc. IRE* 30 (1942)
 412–424, [DOI](https://doi.org/10.1109/JRPROC.1942.232015), and
 [Jackson's university notes, pp. 23–26](https://courses.egr.uh.edu/ECE/ECE5317/Class%20Notes/Notes%207%205317-6351%20Waveguiding%20Structures%20Part%202%20%28Attenuation%29.pdf).
 [Wcalc](https://wcalc.sourceforge.net/coupled_stripline.html) likewise documents
-Wheeler loss and a DC/skin interpolation for coupled stripline.
+Wheeler loss for coupled stripline.
 
-The interpolation makes each R diagonal `hypot(Rdc, R_hf)`. It applies a diagonal
-congruence to the full skin matrix and adds the positive DC matrix, preserving
-passivity and high-frequency mutual R. This transition is an approximation, not an
-accurate low-frequency eddy-current or proximity-current solution. Internal
-frequency-dependent inductance, roughness, etch trapezoids, conformal mask, finite
-plane boundaries, plane apertures, non-reference planes and vias are outside this
-module. Roughness is omitted. The 1–2% validation below concerns quasi-static
+The module returns the two asymptotes, `dcResistance` and `skinResistance`, and no
+R(f) of its own. The DC-to-skin crossover is realized once, in the ladder's causal
+network (`docs/routed-2d.md`): `sqrt(Rdc^2 + S^2 s/pi)` for one conductor. That form is
+checked against an independent filament solve (golden checks 27 and 28); it is an
+interpolation between exact asymptotes, not an eddy-current solution. Roughness,
+etch trapezoids, conformal mask, finite plane boundaries, plane apertures,
+non-reference planes and vias are outside this module. The 1–2% validation below concerns quasi-static
 C/L/impedance/delay; it is not a blanket 2% conductor-loss claim.
 
 ## Numerical validation
