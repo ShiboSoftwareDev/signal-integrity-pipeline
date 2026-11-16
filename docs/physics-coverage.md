@@ -209,4 +209,4 @@ delay is half the time the TDR takes to reach ρ = +0.5, measured against the in
 | Window | What it contains | Mesh |
 |---|---|---|
 | A12, last 8 mm | bottom-layer microstrip, its exit over the inner6 antipad (the void), and a through via to the U3 top pad | 9.8M cells, 0.033 mm |
-| BA1, last 8 mm | inner2 stripline between inner3 and inner1, and a blind via up to the U3 top pad | 4.1M cells, 0.025 mm |
+| BA1, last 8 mm | inner2 stripline (each of its 15 slices has a power-net reference), and a blind via up to the U3 top pad | 4.1M cells, 0.025 mm |
