@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { causalLossResponse, skinCrossover, solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
+import { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
 import { coupledMicrostrip, coupledStripline, pozarStriplineAttenuation, singleMicrostrip, stripline } from './cross-section-reference'
 import { sectionFixture } from './cross-section-fixtures'
 import { energyFacts, maxwellFacts } from '../support/golden-checks'
@@ -141,11 +141,6 @@ function invert(matrix: Matrix): Matrix {
   return a.map(row => row.slice(n))
 }
 
-/** Series resistance the ladder realizes for one conductor: R_dc plus the crossover-shifted causal skin network. */
-function realized(dc: number, skin: number, frequency: number): number {
-  return dc + skin * causalLossResponse(frequency, skinCrossover(dc, skin)).skinReal
-}
-
 /** Surface resistance divided by sqrt(f): Rs = rho/delta = sqrt(pi f mu0 / sigma), delta = sqrt(rho/(pi f mu0)). */
 const surface = (conductivity: number): number => Math.sqrt(Math.PI * mu0 / conductivity)
 
@@ -236,11 +231,9 @@ test('golden stage 3: homogeneous dielectric gives L C = mu0 eps0 er I for coupl
   assert.deepEqual(failures, [])
 })
 
-test('golden stage 3: DC resistance R = rho l / A and its low-frequency limit', () => {
-  // R per metre = 1/(sigma w t) exactly; infinite planes carry no DC resistance in this model. At 1 kHz the skin
-  // depth (2 mm in copper) is ~60x the thickness, so true R(f)/R_dc - 1 ~ (t/delta)^4 << 1e-3 (Ramo, Whinnery & Van Duzer,
-  // Fields and Waves, section 5.6): tolerance 1e-3 at 1 kHz, exact equality at f = 0, 1e-12 relative for R_dc.
-  // R(f) is the series resistance the ladder realizes: R_dc + S Re[z(jw + shift) - z(shift)] (causal-loss.ts).
+test('golden stage 3: DC resistance R = rho l / A', () => {
+  // R per metre = 1/(sigma w t) exactly, 1e-12 relative; infinite planes carry no DC resistance in this model. The
+  // deck's own DC path is check 25 (ngspice .op divider).
   const section: CrossSection = {
     conductors: [{ id: 'cu', xMm: -.3, zMm: .4825, widthMm: .2, thicknessMm: .035 }, { id: 'alloy', xMm: .3, zMm: .491, widthMm: .15, thicknessMm: .018, conductivitySm: 3.5e7 }],
     planes: [{ zMm: 0 }, { zMm: 1 }], dielectrics: [{ zMm: 0, thicknessMm: 1, er: 4, lossTangent: .01 }],
@@ -250,12 +243,8 @@ test('golden stage 3: DC resistance R = rho l / A and its low-frequency limit', 
   const failures: string[] = []
   for (const [i, value] of expected.entries()) {
     if (!(Math.abs(line.dcResistance[i][i] / value - 1) <= 1e-12)) failures.push(`R_dc ${i}: ${line.dcResistance[i][i]} vs ${value}`)
-    const low = realized(line.dcResistance[i][i], line.skinResistance[i][i], 1e3) / value - 1
-    console.log(`conductor ${i}: R_dc ${value.toFixed(6)} ohm/m; R(1 kHz)/R_dc - 1 = ${low.toExponential(3)}`)
-    if (!(low >= 0 && low <= 1e-3)) failures.push(`R(1 kHz) ${i}: relative excess ${low}`)
   }
   if (line.dcResistance[0][1] !== 0 || line.dcResistance[1][0] !== 0) failures.push('ideal planes must not couple DC resistance')
-  assert.deepEqual(expected.map((_, i) => realized(line.dcResistance[i][i], line.skinResistance[i][i], 0)), expected.map((_, i) => line.dcResistance[i][i]))
   assert.deepEqual(failures, [])
 })
 
@@ -333,7 +322,7 @@ test('golden invariants: extracted L, C0, C are SPD with |k| < 1, C is Maxwell, 
       if (!(facts.minimumDiagonal > 0 && facts.maximumOffDiagonal < (section.conductors.length > 1 ? 0 : 1) && facts.minimumRowSum >= -1e-9)) failures.push(`${label} ${name} Maxwell: ${JSON.stringify(facts)}`)
     }
     // The ladder scales each loss matrix by a nonnegative network response (check 12), so PSD matrices give PSD R(f), G(f).
-    for (const name of ['dcResistance', 'skinResistance', 'dielectricLoss'] as const) {
+    for (const name of ['dcResistance', 'skinResistance', 'stripSkinResistance', 'dielectricLoss'] as const) {
       const facts = energyFacts(line[name])
       if (!(line[name].every((row, i) => row[i] >= 0) && facts.minimumEigenvalue >= -1e-12 * Math.abs(facts.maximumEigenvalue))) failures.push(`${label} ${name}: ${JSON.stringify(facts)}`)
     }

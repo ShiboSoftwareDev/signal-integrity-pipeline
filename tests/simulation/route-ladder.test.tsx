@@ -36,7 +36,8 @@ const riseSeconds = 100e-12
 function straightLine(section: CrossSection, lossScale: number): { extracted: ExtractedRoutes; line: RouteCoefficients; ladder: RouteLadder } {
   const solved = solveCrossSection(section)
   const line: RouteCoefficients = { conductorIds: solved.conductorIds, C: solved.C, C0: solved.C0, L: solved.L, dielectricLoss: solved.dielectricLoss, diagnostics: solved.diagnostics,
-    dcResistance: solved.dcResistance.map(row => row.map(value => value * lossScale)), skinResistance: solved.skinResistance.map(row => row.map(value => value * lossScale)) }
+    dcResistance: solved.dcResistance.map(row => row.map(value => value * lossScale)), skinResistance: solved.skinResistance.map(row => row.map(value => value * lossScale)),
+    stripSkinResistance: solved.stripSkinResistance.map(row => row.map(value => value * lossScale)) }
   const wires: RouteWire[] = section.conductors.map((conductor, i) => ({ id: i, trace: `t${i}`, source: `s${i}`, layer: 'inner1', width: conductor.widthMm,
     a: [0, conductor.xMm], b: [lengthMm, conductor.xMm], u: [1, 0], start: 0, end: lengthMm, transverse: conductor.xMm }))
   const extracted: ExtractedRoutes = { slices: [{ wires, start: 0, end: lengthMm, references: [], key: 'golden', line }], sections: [{ key: 'golden', line }],
@@ -313,7 +314,7 @@ function banded(label: string, results: { frequency: number; mode: number; ladde
   return { records, failures }
 }
 
-test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native , todo: 'fails: -11.3% at 10 MHz, -9.6% at 21.7 MHz (plane loss held back by the crossover)' }, async context => {
+test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native }, async context => {
   if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
   // One uncoupled trace: the DDR3 board's inner trace, 0.1 x 0.0152 mm centred in b = 0.2152 mm, er 4.1, planes 15.2 um.
   const section: CrossSection = { conductors: [{ id: 's', xMm: 0, zMm: .1, widthMm: .1, thicknessMm: .0152 }], planes: [{ zMm: 0 }, { zMm: .2152 }], dielectrics: [{ zMm: 0, thicknessMm: .2152, er: 4.1, lossTangent: 0 }] }
@@ -323,23 +324,28 @@ test('golden stage 6: ladder attenuation follows a filament conductor-loss refer
   assert.deepEqual(failures, [])
 })
 
-test('golden stage 6: coupled-pair modal attenuation follows a 2 x 2 filament reference from 10 MHz to 5 GHz', { skip: native , todo: 'fails: mixed pair -28.2% and +15.4%, symmetric pair -14.6% at 10 MHz (shared crossover over plane and mutual loss)' }, async context => {
+/** Modal comparison of one coupled pair centred in b = 0.2152 mm, er 4.1, planes 15.2 um. */
+async function pairAttenuation(label: string, conductors: [number, number, number][]): Promise<{ records: Record<string, number | string>[]; failures: string[] }> {
+  const section: CrossSection = { conductors: conductors.map(([x, w, t], i) => ({ id: `c${i}`, xMm: x, zMm: (.2152 - t) / 2, widthMm: w, thicknessMm: t })), planes: [{ zMm: 0 }, { zMm: .2152 }], dielectrics: [{ zMm: 0, thicknessMm: .2152, er: 4.1, lossTangent: 0 }] }
+  return banded(label, await modalAttenuation(section, .0152e-3))
+}
+
+// Check 29 exercises the coupled skin multiport (55% of the DDR3 addr/cmd cells): even and odd modes of a symmetric
+// pair, then the two modes of a mixed pair whose rows have different DC-to-skin crossovers.
+test('golden stage 6: coupled-pair modal attenuation follows a 2 x 2 filament reference from 10 MHz to 5 GHz', { skip: native }, async context => {
   if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
-  // The coupled skin multiport (55% of the DDR3 addr/cmd cells). Symmetric pair: two 0.1 x 0.0152 mm traces, 0.1 mm
-  // gap, centred in b = 0.2152 mm (even and odd modes). Mixed pair: 0.1 x 0.0152 mm beside 0.2 x 0.035 mm, 0.1 mm gap,
-  // each centred, so the two rows have different DC-to-skin crossovers. er 4.1, planes 15.2 um.
-  /** One trace centred between the planes. */
-  const centred = (x: number, w: number, t: number, id: string): CrossSection['conductors'][number] => ({ id, xMm: x, zMm: (.2152 - t) / 2, widthMm: w, thicknessMm: t })
-  const dielectrics = [{ zMm: 0, thicknessMm: .2152, er: 4.1, lossTangent: 0 }]
-  const planes = [{ zMm: 0 }, { zMm: .2152 }]
-  const all: Record<string, number | string>[] = []
-  const failures: string[] = []
-  for (const [label, conductors] of [['symmetric 0.1/0.1', [centred(-.1, .1, .0152, 'a'), centred(.1, .1, .0152, 'b')]], ['mixed 0.1@15.2um / 0.2@35um', [centred(-.1, .1, .0152, 'a'), centred(.15, .2, .035, 'b')]]] as const) {
-    const result = banded(label, await modalAttenuation({ conductors: [...conductors], planes, dielectrics }, .0152e-3))
-    all.push(...result.records)
-    failures.push(...result.failures)
-  }
-  context.diagnostic(JSON.stringify(all))
-  console.table(all)
+  // Two 0.1 x 0.0152 mm traces with a 0.1 mm gap.
+  const { records, failures } = await pairAttenuation('symmetric 0.1/0.1', [[-.1, .1, .0152], [.1, .1, .0152]])
+  context.diagnostic(JSON.stringify(records))
+  console.table(records)
+  assert.deepEqual(failures, [])
+})
+
+test('golden stage 6: mixed-thickness pair modal attenuation follows a 2 x 2 filament reference', { skip: native, todo: 'fails at one point: mode 0 -10.7% at 10 MHz (model planes are half-spaces); every other point within the band' }, async context => {
+  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+  // 0.1 x 0.0152 mm beside 0.2 x 0.035 mm, 0.1 mm gap.
+  const { records, failures } = await pairAttenuation('mixed 0.1@15.2um / 0.2@35um', [[-.1, .1, .0152], [.15, .2, .035]])
+  context.diagnostic(JSON.stringify(records))
+  console.table(records)
   assert.deepEqual(failures, [])
 })

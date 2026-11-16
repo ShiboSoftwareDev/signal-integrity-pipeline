@@ -47,18 +47,18 @@ test('normalized reciprocal resistance obeys V = R I down to tiny Foster voltage
 })
 
 test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps uncoupled rows scalar', () => {
-  // Rows a, b, c are one coupled group: their own crossovers 1e7, 4e7, 1.6e8 rad/s share the geometric mean 4e7.
+  // No conductor-wall share: the whole S is the unshifted remainder multiport.
   const matrix = [[4e-6, 1e-6, 0], [1e-6, 9e-6, -3e-6], [0, -3e-6, 16e-6]]
   const currents = [2e-3, -1e-3, 3e-3]
   const poles = causalLossPoles()
   const lines: string[] = []
-  skinEnergy(lines, 'T', ['a', 'b', 'c'], poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), energy(matrix), poles, [1e7, 4e7, 1.6e8])
-  const shifted = poles.map(pole => ({ rate: pole.rate + 4e7, skin: pole.skin * pole.rate / (pole.rate + 4e7) }))
+  skinEnergy(lines, 'T', ['a', 'b', 'c'], poles.map((_, p) => ['a', 'b', 'c'].map(node => `q${node}${p}`)), poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), energy(matrix), poles, [1, 1, 1], [0, 0, 0])
+  assert.equal(lines.filter(line => / q[abc]\d /.test(line)).length, 0, 'no conductor-wall chain without a share')
   assert.equal(lines.filter(line => line.startsWith('K')).length, 0, 'no per-pole mutual inductance layers')
   for (const frequency of [1e6, 1e9, 2e10]) {
     const omega = 2 * Math.PI * frequency
     // Complex numbers as [real, imaginary]; z_p = skin jw / (jw + rate).
-    const stage = shifted.map(pole => [pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2)])
+    const stage = poles.map(pole => [pole.skin * omega ** 2 / (pole.rate ** 2 + omega ** 2), pole.skin * omega * pole.rate / (pole.rate ** 2 + omega ** 2)])
     const z = stage.reduce(([re, im], [a, b]) => [re + a, im + b], [0, 0])
     const nodes = new Map<string, number[]>([['0', [0, 0]]])
     for (const [i, node] of ['a', 'b', 'c'].entries()) {
@@ -85,10 +85,21 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
     }
   }
   const diagonal: string[] = []
-  // Uncoupled rows keep their own shift: row b's 90 rad/s gives stages (rate 100, skin 2 * 10/100) and (190, 3 * 100/190).
-  skinEnergy(diagonal, 'D', ['a', 'b'], [['c', 'd'], ['e', 'f']], energy([[1e-4, 0], [0, 2e-4]]), [{ rate: 10, skin: 2, dielectric: 0 }, { rate: 100, skin: 3, dielectric: 0 }], [0, 90])
-  assert.deepEqual(diagonal, ['RDS00 a c 0.0002', 'RDS01 b d 0.00004', 'LDP00 a c 0.00002', 'LDP01 b d 4e-7',
-    'RDS10 c e 0.0003', 'RDS11 d f 0.000315789473684', 'LDP10 c e 0.000003', 'LDP11 d f 0.0000016620498615'])
+  // Row b: conductor-wall share 1.5e-4 of S = 2e-4, R_dc chosen so its own crossover is 90 rad/s: a shifted chain
+  // b -> g -> h with stages (rate 100, skin 2 * 10/100) and (190, 3 * 100/190), then the 0.5e-4 remainder h -> d -> f.
+  const dc = 1.5e-4 * Math.sqrt(90 / Math.PI)
+  const toy = [{ rate: 10, skin: 2, dielectric: 0 }, { rate: 100, skin: 3, dielectric: 0 }]
+  assert.equal(skinEnergy(diagonal, 'D', ['a', 'b'], [['q', 'g'], ['r', 'h']], [['c', 'd'], ['e', 'f']], energy([[1e-4, 0], [0, 2e-4]]), toy, [1, dc], [0, 1.5e-4]), 0)
+  /** Value of the emitted element `name`. */
+  const value = (name: string): number => Number(diagonal.find(line => line.startsWith(`${name} `))!.split(' ')[3])
+  assert.deepEqual(diagonal.map(line => line.split(' ').slice(0, 3).join(' ')), ['RDQ01 b g', 'LDQ01 b g', 'RDQ11 g h', 'LDQ11 g h', 'RDS00 a c', 'RDS01 h d', 'LDP00 a c', 'LDP01 h d', 'RDS10 c e', 'RDS11 d f', 'LDP10 c e', 'LDP11 d f'])
+  for (const [name, expected] of [['RDQ01', 1.5e-4 * 2 * 10 / 100], ['LDQ01', 1.5e-4 * 2 * 10 / 100 / 100], ['RDQ11', 1.5e-4 * 3 * 100 / 190], ['LDQ11', 1.5e-4 * 3 * 100 / 190 / 190],
+    ['RDS01', .5e-4 * 2], ['LDP01', .5e-4 * 2 / 10], ['RDS11', .5e-4 * 3], ['LDP11', .5e-4 * 3 / 100], ['RDS00', 1e-4 * 2]] as const) assert.ok(Math.abs(value(name) / expected - 1) < 1e-9, `${name}: ${value(name)} vs ${expected}`)
+  // A coupled pair caps each own share at S_ii - |S_ij| so the shared remainder stays diagonally dominant (passive).
+  const capped: string[] = []
+  assert.equal(skinEnergy(capped, 'C', ['a', 'b'], [['q', 'g'], ['r', 'h']], [['c', 'd'], ['e', 'f']], energy([[1e-4, 3e-5], [3e-5, 1e-4]]), toy, [1e-3, 1e-3], [9e-5, 5e-5]), 1)
+  assert.ok(Math.abs(Number(capped.find(line => line.startsWith('GCSI0 '))!.split(' ')[5]) - 1 / Math.sqrt(3e-5)) < 1e-6, 'row a keeps a 3e-5 remainder')
+  assert.ok(Math.abs(Number(capped.find(line => line.startsWith('GCS0_1 '))!.split(' ')[5]) - 3e-5 / Math.sqrt(3e-5 * 5e-5)) < 1e-9, 'normalized mutual over the remainders')
 })
 
 test('sparse Maxwell shunts preserve dense row sums, pair ordering and Foster loss', () => {

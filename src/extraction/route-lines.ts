@@ -74,7 +74,7 @@ export function closestRoutePoints(a: RouteXY, b: RouteXY, c: RouteXY, d: RouteX
 
 
 /** Ideal AC rail voltages require induced return currents, rather than open series conductors. */
-export function referenceSeries(line: RouteCoefficients, grounded: number[]): Pick<CrossSectionResult, 'L' | 'skinResistance'> {
+export function referenceSeries(line: RouteCoefficients, grounded: number[]): Pick<CrossSectionResult, 'L' | 'skinResistance' | 'stripSkinResistance'> {
   if (!grounded.length) return line
   const size = line.L.length
   const active = Array.from({ length: size }, (_, i) => i).filter(i => !grounded.includes(i))
@@ -82,5 +82,5 @@ export function referenceSeries(line: RouteCoefficients, grounded: number[]): Pi
   const current = line.L.map((row, i) => row.map((_, j) => Number(i === j && !grounded.includes(i))))
   for (const [i, row] of grounded.entries()) for (const column of active) current[row][column] = -grounded.reduce((sum, index, j) => sum + inverse[i][j] * line.L[index][column], 0)
   const projection = transpose(current)
-  return { L: multiply(projection, multiply(line.L, current)), skinResistance: multiply(projection, multiply(line.skinResistance, current)) }
+  return { L: multiply(projection, multiply(line.L, current)), skinResistance: multiply(projection, multiply(line.skinResistance, current)), stripSkinResistance: multiply(projection, multiply(line.stripSkinResistance, current)) }
 }

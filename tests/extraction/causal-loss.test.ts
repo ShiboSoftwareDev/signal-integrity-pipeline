@@ -54,33 +54,43 @@ test('golden stage 3: causal dielectric loss obeys the Kramers–Kronig slope lo
   }
 })
 
-test('golden stage 3: simulated conductor resistance follows a filament reference from 10 MHz to 5 GHz', { todo: 'fails: the one crossover also holds back plane loss: -11.3% (0.1 mm) and -21.3% (0.3 mm) at 10 MHz, +5.1% (0.3 mm) at 200 MHz' }, () => {
-  // The ladder's series resistance per metre for one conductor: R_dc + S Re[z(jw + w_c) - z(w_c)],
-  // w_c = skinCrossover(R_dc, S) (route-energy.ts skinEnergy). Reference: the
+/** Simulated per-metre R of centred striplines against the filament reference, under check 27's banded bound. */
+function conductorLoss(strips: readonly (readonly [string, number, number, number])[]): string[] {
+  // The ladder's series resistance per metre for one conductor: R_dc + a Re[z(jw + w_c) - z(w_c)] + (S - a) Re z(jw),
+  // a = the conductor-wall Wheeler share, w_c = skinCrossover(R_dc, a) (route-energy.ts skinEnergy). Reference: the
   // independent filament solve of the strip between perfect planes, with plane loss added by the finite-thickness
   // surface impedance (filamentImpedance; Weeks et al., IBM J. Res. Dev. 1979). Three centred striplines, er 4.1, planes
   // as thick as the trace copper: 0.1 and 0.3 x 0.0152 mm in b = 0.2152 mm (the DDR3 board's inner traces, w/t 6.6 and
   // 20) and 1 oz 0.2 x 0.035 mm in b = 0.5 mm (w/t 5.7).
   // Tolerance, banded: 10% up to 50 MHz, where the realized form is an interpolation between exact asymptotes and the
-  // model's planes are half-spaces (the reference's finite planes add ~3% at 10 MHz); 5% from 100 MHz, where both sides
+  // model's planes are half-spaces (the reference's finite planes add 3–6 points at 10 MHz); 5% from 100 MHz, where both sides
   // approach Wheeler's coefficient (checks 9–11). Reference mesh error at 5 GHz is <= 0.5% (48 x 20 against 80 x 32
   // cells); the unshifted Foster fit is within 0.8% in band, and the shifted one within ~3% at 10–25 MHz on 1 oz copper,
   // where w_c approaches the lowest pole.
   const frequencies = [1e7, 2e7, 5e7, 1e8, 2e8, 5e8, 1e9, 2e9, 5e9]
   const rows: Record<string, number | string>[] = []
   const failures: string[] = []
-  for (const [label, w, t, b] of [['0.1 x 0.0152 mm, b 0.2152', .1, .0152, .2152], ['0.3 x 0.0152 mm, b 0.2152', .3, .0152, .2152], ['0.2 x 0.035 mm, b 0.5', .2, .035, .5]] as const) {
+  for (const [label, w, t, b] of strips) {
     const line = solveCrossSection({ conductors: [{ id: 's', xMm: 0, zMm: (b - t) / 2, widthMm: w, thicknessMm: t }], planes: [{ zMm: 0 }, { zMm: b }], dielectrics: [{ zMm: 0, thicknessMm: b, er: 4.1, lossTangent: 0 }] })
     const dc = line.dcResistance[0][0]
     const skin = line.skinResistance[0][0]
+    const own = Math.min(line.stripSkinResistance[0][0], skin)
     const reference = filamentImpedance({ strips: [{ xM: 0, widthM: w * 1e-3, thicknessM: t * 1e-3, bottomM: (b - t) / 2 * 1e-3 }], spacingM: b * 1e-3, planeThicknessM: t * 1e-3, conductivity: 5.8e7 }, frequencies)
     for (const { frequency, R } of reference) {
-      const realized = dc + skin * causalLossResponse(frequency, skinCrossover(dc, skin)).skinReal
+      const realized = dc + own * causalLossResponse(frequency, skinCrossover(dc, own)).skinReal + (skin - own) * causalLossResponse(frequency).skinReal
       const error = realized / R[0][0] - 1
       rows.push({ strip: label, frequencyHz: frequency, referenceOhmPerM: +R[0][0].toFixed(3), simulatedOhmPerM: +realized.toFixed(3), errorPercent: +(100 * error).toFixed(2) })
       if (!(Math.abs(error) <= (frequency <= 5e7 ? .1 : .05))) failures.push(`${label} at ${frequency} Hz: ${realized} vs ${R[0][0]}`)
     }
   }
   console.table(rows)
-  assert.deepEqual(failures, [])
+  return failures
+}
+
+test('golden stage 3: simulated conductor resistance follows a filament reference from 10 MHz to 5 GHz', () => {
+  assert.deepEqual(conductorLoss([['0.1 x 0.0152 mm, b 0.2152', .1, .0152, .2152], ['0.2 x 0.035 mm, b 0.5', .2, .035, .5]]), [])
+})
+
+test('golden stage 3: wide thin trace (w/t 20) conductor resistance follows the filament reference', { todo: 'fails: -11.1% at 10 MHz (model planes are half-spaces; -4.9% against half-space planes), +5.5% at 100 MHz and +6.2% at 200 MHz (crossover shape)' }, () => {
+  assert.deepEqual(conductorLoss([['0.3 x 0.0152 mm, b 0.2152', .3, .0152, .2152]]), [])
 })

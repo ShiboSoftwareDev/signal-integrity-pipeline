@@ -1,4 +1,4 @@
-import { crossoverPoles, type LossPole } from '../extraction'
+import { crossoverPoles, skinCrossover, type LossPole } from '../extraction'
 
 /** Sparse energy rows retain only terms integrated from a common physical slice. */
 export class RouteEnergy {
@@ -64,69 +64,55 @@ export function seriesEnergy(lines: string[], tag: string, before: string[], aft
 }
 
 /**
- * Causal skin loss. Every pole scales one matrix S, so Z(s) = z(s) S with the unit Foster impedance
- * z(s) = sum(skin s / (s + rate)). Uncoupled rows keep scalar R || L pole stages. Coupled rows share one
- * normalized multiport instead of one per pole: a series VCCS carries I = x / sqrt(Sii), the auxiliary KCL is
- * sum_j Sn_ij u_j = V / sqrt(Sii), and a grounded unit Foster stage sequence gives u = z(s) x.
- * `crossover` holds each row's DC-to-skin rate shift (`skinCrossover`): the stages realize z(s + shift) - z(shift),
- * so R_dc in series is not counted twice. Rows coupled through S share one shift, the geometric mean of their own,
- * because V = S diag(z_j) I is reciprocal only when every z_j is the same function.
+ * Causal skin loss, Z(s) = diag(a_i (z(s + w_i) - z(w_i))) + (S - diag(a)) z(s), with the unit Foster impedance
+ * z(s) = sum(skin s / (s + rate)) ~ sqrt(s/pi). Row i's own share a_i is its conductor-wall Wheeler term (`strip`),
+ * shifted by its own crossover w_i = pi (R_dc,i / a_i)^2 (`skinCrossover`), so with the series R_dc it gives
+ * sqrt(R_dc^2 + a_i^2 s/pi): DC and the conductor's skin loss are not counted twice. The remainder (plane walls and
+ * every mutual term) has no DC part and keeps the plain sqrt(f) network. a_i is capped at S_ii - sum_j |S_ij| so
+ * the remainder stays diagonally dominant, hence positive semidefinite: both parts are passive and reciprocal.
+ * Each a_i stage is a scalar R || L chain from `before` through `stripStages`. Remainder rows without mutual terms
+ * are scalar chains through `stages`; coupled rows share one normalized multiport: a series VCCS carries
+ * I = x / sqrt(Mii), the auxiliary KCL is sum_j Mn_ij u_j = V / sqrt(Mii), and a grounded unit Foster stage
+ * sequence gives u = z(s) x. Returns how many rows had their own share reduced by the cap.
  */
-export function skinEnergy(lines: string[], tag: string, before: string[], stages: string[][], matrix: RouteEnergy, poles: LossPole[], crossover: number[]): void {
+export function skinEnergy(lines: string[], tag: string, before: string[], stripStages: string[][], stages: string[][], matrix: RouteEnergy, poles: LossPole[], dc: number[], strip: number[]): number {
   const after = stages.at(-1)!
   const top = Math.max(...poles.map(pole => pole.skin))
   const terms = before.map((_, i) => matrix.entries(i).filter(([j, value]) => j !== i && Math.abs(value) * top >= 1e-20))
-  const shifted = sharedCrossover(terms, crossover).map(shift => crossoverPoles(poles, shift))
-  for (let p = 0; p < poles.length; p++) {
-    const start = p ? stages[p - 1] : before
-    for (const kind of ['RS', 'LP'] as const) for (let i = 0; i < before.length; i++) {
-      const pole = shifted[i][p]
-      const resistance = (matrix.rows[i].get(i) ?? 0) * pole.skin
-      if (!terms[i].length) lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${start[i]} ${stages[p][i]} ${number(kind === 'RS' ? resistance : resistance / pole.rate)}`)
-    }
+  const own = before.map((_, i) => Math.max(0, Math.min(strip[i], (matrix.rows[i].get(i) ?? 0) - terms[i].reduce((sum, [, value]) => sum + Math.abs(value), 0))))
+  const rest = own.map((value, i) => (matrix.rows[i].get(i) ?? 0) - value)
+  for (const [i, value] of rest.entries()) {
+    if (value < terms[i].reduce((sum, [, mutual]) => sum + Math.abs(mutual), 0) * (1 - 1e-12)) throw new Error('Skin loss remainder must stay diagonally dominant (passive)')
+  }
+  // A row whose remainder is zero ends its own chain at `after`; one without its own share starts the remainder at `before`.
+  const middle = before.map((node, i) => !(own[i] > 0) ? node : rest[i] > 0 || terms[i].length ? stripStages.at(-1)![i] : after[i])
+  const shifted = own.map((value, i) => crossoverPoles(poles, skinCrossover(dc[i], value)))
+  for (let p = 0; p < poles.length; p++) for (const kind of ['RQ', 'LQ'] as const) for (let i = 0; i < before.length; i++) {
+    if (!(own[i] > 0)) continue
+    const resistance = own[i] * shifted[i][p].skin
+    const end = p === poles.length - 1 ? middle[i] : stripStages[p][i]
+    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${p ? stripStages[p - 1][i] : before[i]} ${end} ${number(kind === 'RQ' ? resistance : resistance / shifted[i][p].rate)}`)
+  }
+  for (let p = 0; p < poles.length; p++) for (const kind of ['RS', 'LP'] as const) for (let i = 0; i < before.length; i++) {
+    if (terms[i].length || (!(rest[i] > 0) && own[i] > 0)) continue
+    const resistance = rest[i] * poles[p].skin
+    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${p ? stages[p - 1][i] : middle[i]} ${stages[p][i]} ${number(kind === 'RS' ? resistance : resistance / poles[p].rate)}`)
   }
   for (let i = 0; i < before.length; i++) {
     if (!terms[i].length) continue
-    const self = matrix.rows[i].get(i) ?? 0
-    if (!(self > 0)) throw new Error('Coupled skin loss requires a positive self term')
+    const self = rest[i]
     const scale = 1 / Math.sqrt(self)
     const x = `${tag}Sx${i}`
-    lines.push(`G${tag}SI${i} ${before[i]} ${after[i]} ${x} 0 ${number(scale)}`, `G${tag}SV${i} ${x} 0 ${before[i]} ${after[i]} ${number(-scale)}`,
+    lines.push(`G${tag}SI${i} ${middle[i]} ${after[i]} ${x} 0 ${number(scale)}`, `G${tag}SV${i} ${x} 0 ${middle[i]} ${after[i]} ${number(-scale)}`,
       `G${tag}SF${i} 0 ${tag}Su${i} ${x} 0 1`, `G${tag}S${i}_${i} ${x} 0 ${tag}Su${i} 0 1`)
-    for (const [j, mutual] of terms[i]) lines.push(`G${tag}S${i}_${j} ${x} 0 ${tag}Su${j} 0 ${number(mutual / Math.sqrt(self * matrix.rows[j].get(j)!))}`)
-    for (const [p, pole] of shifted[i].entries()) {
+    for (const [j, mutual] of terms[i]) lines.push(`G${tag}S${i}_${j} ${x} 0 ${tag}Su${j} 0 ${number(mutual / Math.sqrt(self * rest[j]))}`)
+    for (const [p, pole] of poles.entries()) {
       const node = p ? `${tag}F${p - 1}_${i}` : `${tag}Su${i}`
       const next = p === poles.length - 1 ? '0' : `${tag}F${p}_${i}`
       lines.push(`R${tag}F${p}_${i} ${node} ${next} ${number(pole.skin)}`, `L${tag}F${p}_${i} ${node} ${next} ${number(pole.skin / pole.rate)}`)
     }
   }
-}
-
-/** One rate shift per group of rows joined by mutual skin terms: the geometric mean of the group's own shifts. */
-function sharedCrossover(terms: [number, number][][], crossover: number[]): number[] {
-  const group = crossover.map((_, i) => i)
-  /** Union-find root with path halving. */
-  const root = (row: number): number => {
-    let i = row
-    while (group[i] !== i) {
-      group[i] = group[group[i]]
-      i = group[i]
-    }
-    return i
-  }
-  for (const [i, row] of terms.entries()) for (const [j] of row) group[root(i)] = root(j)
-  const logs = new Map<number, { sum: number; count: number }>()
-  for (const [i, shift] of crossover.entries()) {
-    if (!(shift > 0)) continue
-    const entry = logs.get(root(i)) ?? { sum: 0, count: 0 }
-    entry.sum += Math.log(shift)
-    entry.count++
-    logs.set(root(i), entry)
-  }
-  return crossover.map((_, i) => {
-    const entry = logs.get(root(i))
-    return entry ? Math.exp(entry.sum / entry.count) : 0
-  })
+  return own.filter((value, i) => value < strip[i]).length
 }
 
 /** Exact sparse realization for symmetric diagonally dominant energy matrices, including positive mutual entries. */

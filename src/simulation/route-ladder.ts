@@ -1,9 +1,11 @@
-import { causalLossPoles, causalLossResponse, referenceSeries, skinCrossover, type ExtractedRoutes, type ExtractedRouteSlice, type RouteReturn } from '../extraction'
+import { causalLossPoles, causalLossResponse, referenceSeries, type ExtractedRoutes, type ExtractedRouteSlice, type RouteReturn } from '../extraction'
 import { RouteEnergy, seriesEnergy, shuntEnergy, skinEnergy } from './route-energy'
 import { type RouteWire, type RouteXY } from '../board'
 
 export interface RouteLadder {
   lines: string[]; cells: number; maximumDelaySeconds: number
+  /** Cells whose own conductor skin share was reduced to keep the shared remainder passive. */
+  cappedSkinCells: number
   wireNodes: Map<number, { position: number; node: string }[]>
 }
 
@@ -85,7 +87,7 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       }
       wireNodes.set(wire.id, records)
     }
-    yield { lines, cells: cells.length, maximumDelaySeconds: Math.max(...cells.map(cell => (cell.end - cell.start) / 1000 * maximumDelayPerMetre)), wireNodes }
+    yield { lines, cells: cells.length, maximumDelaySeconds: Math.max(...cells.map(cell => (cell.end - cell.start) / 1000 * maximumDelayPerMetre)), cappedSkinCells: 0, wireNodes }
   }
   const nodeNames = [...new Set(cells.flatMap(cell => [cell.before, cell.after]))].filter(node => node !== '0')
   const nodeIds = new Map(nodeNames.map((node, i) => [node, i]))
@@ -96,6 +98,7 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   const R = zero(cells.length)
   const L = zero(cells.length)
   const skin = zero(cells.length)
+  const strip = cells.map(() => 0)
   const C = zero(nodeNames.length)
   const D = zero(nodeNames.length)
   for (const slice of extracted.slices) {
@@ -130,6 +133,7 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
         R.add(a.index, b.index, slice.line.dcResistance[i][j] * signedLength)
         L.add(a.index, b.index, series.L[i][j] * signedLength)
         skin.add(a.index, b.index, series.skinResistance[i][j] * signedLength)
+        if (i === j) strip[a.index] += series.stripSkinResistance[i][i] * metres
         for (const side of ['before', 'after'] as const) if (a[side] !== undefined && b[side] !== undefined) {
           C.add(a[side]!, b[side]!, slice.line.C[i][j] * metres / 2)
           D.add(a[side]!, b[side]!, slice.line.dielectricLoss[i][j] * metres / 2)
@@ -137,8 +141,8 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       }
     }
   }
-  // The trace's own DC and skin terms set its crossover, before a hybrid return adds return-path resistance.
-  const crossover = cells.map((_, i) => skinCrossover(R.rows[i].get(i) ?? 0, skin.rows[i].get(i) ?? 0))
+  // The trace's own DC resistance sets its crossover, before a hybrid return adds return-path resistance.
+  const dc = cells.map((_, i) => R.rows[i].get(i) ?? 0)
   if (returnPath) {
     const weights = cells.map(cell => {
       const index = returnPath.traces.findIndex(trace => trace.source === cell.wire.source)
@@ -169,10 +173,12 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   const before = cells.map(cell => cell.before)
   const after = cells.map(cell => cell.after)
   let current = cells.map((_, i) => `ARCd${i}`)
+  let cappedSkinCells = 0
   seriesEnergy(lines, 'ARCD', before, current, R, 'R')
   if (returnPath?.model !== 'series') {
+    const stripStages = causalLossPoles().map((_, p) => cells.map((_, i) => `ARCq${p}n${i}`))
     const stages = causalLossPoles().map((_, p) => cells.map((_, i) => `ARCp${p}n${i}`))
-    skinEnergy(lines, 'ARC', current, stages, skin, causalLossPoles(), crossover)
+    cappedSkinCells = skinEnergy(lines, 'ARC', current, stripStages, stages, skin, causalLossPoles(), dc, strip)
     current = stages.at(-1)!
   }
   seriesEnergy(lines, 'ARCL', current, after, L, 'L')
@@ -181,7 +187,7 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   for (const [i, row] of D.rows.entries()) for (const [j, value] of row) capacitance.rows[i].set(j, (C.rows[i].get(j) ?? 0) - dielectricAtReference * value)
   shuntEnergy(lines, 'ARCC', nodeNames, capacitance)
   for (const [p, pole] of causalLossPoles().entries()) shuntEnergy(lines, `ARCG${p}`, nodeNames, D.scaled(pole.dielectric), pole.rate)
-  return { lines, cells: cells.length, maximumDelaySeconds: Math.max(...cells.map(cell => (cell.end - cell.start) / 1000 * maximumDelayPerMetre)), wireNodes }
+  return { lines, cells: cells.length, maximumDelaySeconds: Math.max(...cells.map(cell => (cell.end - cell.start) / 1000 * maximumDelayPerMetre)), cappedSkinCells, wireNodes }
 }
 
 /** Drain the canonical ladder assembly when interactive stepping is unnecessary. */

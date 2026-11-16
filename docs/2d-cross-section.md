@@ -38,6 +38,7 @@ are reflected internally. IDs and matrix order follow the caller's conductor ord
 | dielectricLoss | F/m; sum of material energy sensitivities weighted by loss tangent |
 | dcResistance | ohm/m; signal bulk resistance; infinite reference has zero DC resistance |
 | skinResistance | ohm/m/sqrt(Hz); coupled high-frequency Wheeler loss coefficient |
+| stripSkinResistance | ohm/m/sqrt(Hz); the share of skinResistance from the signal conductors' own walls (planes held fixed) |
 | diagnostics | panel count, **raw** reciprocity residual and wall differentiation step |
 
 Default options are `panelsPerEdge: 12`, `interfaceExtent: 24`, and
@@ -103,11 +104,12 @@ coupling. See Wheeler, “Formulas for the Skin Effect,” *Proc. IRE* 30 (1942)
 [Wcalc](https://wcalc.sourceforge.net/coupled_stripline.html) likewise documents
 Wheeler loss for coupled stripline.
 
-The module returns the two asymptotes, `dcResistance` and `skinResistance`, and no
-R(f) of its own. The DC-to-skin crossover is realized once, in the ladder's causal
-network (`docs/routed-2d.md`): `sqrt(Rdc^2 + S^2 s/pi)` for one conductor. That form is
-checked against an independent filament solve (golden checks 27 and 28); it is an
-interpolation between exact asymptotes, not an eddy-current solution. Roughness,
+The module returns the asymptotes, `dcResistance`, `skinResistance` and its conductor-wall
+share `stripSkinResistance` (a second pair of recession solves with the planes fixed), and
+no R(f) of its own. The DC-to-skin crossover is realized once, in the ladder's causal
+network (`docs/routed-2d.md`), on the conductor-wall share only. It is checked against an
+independent filament solve (golden checks 27–29b); it is an interpolation between exact
+asymptotes, not an eddy-current solution. Roughness,
 etch trapezoids, conformal mask, finite plane boundaries, plane apertures,
 non-reference planes and vias are outside this module. The 1–2% validation below concerns quasi-static
 C/L/impedance/delay; it is not a blanket 2% conductor-loss claim.

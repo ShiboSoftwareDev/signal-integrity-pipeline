@@ -45,6 +45,8 @@ export interface CrossSectionResult {
   dcResistance: Matrix
   /** High-frequency Wheeler resistance divided by sqrt(f in Hz), in ohm/m/sqrt(Hz). */
   skinResistance: Matrix
+  /** The share of skinResistance from the signal conductors' own walls (planes held fixed); the rest is plane loss. */
+  stripSkinResistance: Matrix
   diagnostics: { panels: number; reciprocityResidual: number; recessionMm: number }
 }
 

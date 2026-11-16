@@ -27,12 +27,12 @@ function inductance(C0: Matrix): Matrix {
   return symmetrize(sectionInverse(C0).map(row => row.map(value => sectionMu0 * sectionEpsilon0 * value)))
 }
 
-/** Recede every conducting wall away from the field, weighted by its surface resistivity.
- * Vacuum is essential: moving a wall must not change the electrical dielectric geometry.
+/** Recede every conducting wall (or only the signal conductors' walls) away from the field, weighted by its surface
+ * resistivity. Vacuum is essential: moving a wall must not change the electrical dielectric geometry.
  */
-function recede(region: SectionRegion, distance: number): SectionRegion {
-  const lower = distance * Math.sqrt(copperConductivity / region.lowerConductivity)
-  const upper = distance * Math.sqrt(copperConductivity / region.upperConductivity)
+function recede(region: SectionRegion, distance: number, planes: boolean = true): SectionRegion {
+  const lower = planes ? distance * Math.sqrt(copperConductivity / region.lowerConductivity) : 0
+  const upper = planes ? distance * Math.sqrt(copperConductivity / region.upperConductivity) : 0
   return { ...region, dielectrics: [], height: region.height ? region.height + lower + upper : 0, conductors: region.conductors.map(c => {
     const shift = distance * Math.sqrt(copperConductivity / (c.conductivitySm ?? copperConductivity))
     return { ...c, widthMm: c.widthMm - 2 * shift, thicknessMm: c.thicknessMm - 2 * shift, zMm: c.zMm + shift + lower }
@@ -57,6 +57,7 @@ export function solveCrossSection(section: CrossSection, options: CrossSectionOp
   const L = zero()
   const dielectricLoss = zero()
   const skinResistance = zero()
+  const stripSkinResistance = zero()
   const dcResistance = zero()
   let panels = 0
   let residual = 0
@@ -71,19 +72,24 @@ export function solveCrossSection(section: CrossSection, options: CrossSectionOp
     const step = fraction * scale / weight
     const plus = inductance(sectionField(recede(region, step), count, extent, true).C)
     const minus = inductance(sectionField(recede(region, -step), count, extent, true).C)
+    const stripPlus = inductance(sectionField(recede(region, step, false), count, extent, true).C)
+    const stripMinus = inductance(sectionField(recede(region, -step, false), count, extent, true).C)
+    /** Wheeler resistance per sqrt(Hz) from inductances with the walls receded by +step and -step. */
+    const wheeler = (a: Matrix, b: Matrix, i: number, j: number): number => (a[i][j] - b[i][j]) / (2 * step / 1000) * Math.sqrt(Math.PI * sectionMu0 / copperConductivity) / sectionMu0
     for (const [i, ii] of indices.entries()) for (const [j, jj] of indices.entries()) {
       C[ii][jj] = field.C[i][j]
       C0[ii][jj] = vacuum.C[i][j]
       L[ii][jj] = external[i][j]
       dielectricLoss[ii][jj] = field.loss[i][j]
-      skinResistance[ii][jj] = (plus[i][j] - minus[i][j]) / (2 * step / 1000) * Math.sqrt(Math.PI * sectionMu0 / copperConductivity) / sectionMu0
+      skinResistance[ii][jj] = wheeler(plus, minus, i, j)
+      stripSkinResistance[ii][jj] = wheeler(stripPlus, stripMinus, i, j)
     }
     panels += field.panels
     residual = Math.max(residual, field.residual, vacuum.residual)
     recessionMm = Math.min(recessionMm, step)
   }
   for (const matrix of [C, C0, L]) sectionPassive(matrix, true)
-  for (const matrix of [dielectricLoss, skinResistance]) sectionPassive(matrix)
+  for (const matrix of [dielectricLoss, skinResistance, stripSkinResistance]) sectionPassive(matrix)
   for (const [i, c] of section.conductors.entries()) dcResistance[i][i] = 1e6 / ((c.conductivitySm ?? copperConductivity) * c.widthMm * c.thicknessMm)
-  return { conductorIds: section.conductors.map(c => c.id), C, C0, L, dielectricLoss, dcResistance, skinResistance, diagnostics: { panels, reciprocityResidual: residual, recessionMm } }
+  return { conductorIds: section.conductors.map(c => c.id), C, C0, L, dielectricLoss, dcResistance, skinResistance, stripSkinResistance, diagnostics: { panels, reciprocityResidual: residual, recessionMm } }
 }

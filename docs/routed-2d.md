@@ -90,17 +90,26 @@ matrices fall back to LDL energy factors, never a silent sign correction.
 
 Nine logarithmically spaced poles (10^6.25–10^10.5 Hz) with nonnegative weights
 fitted over 10 MHz–5 GHz approximate `z(s) = sqrt(s/pi)`, i.e. `(1 + j) sqrt(f)`.
-Each skin branch is an R in parallel with L = R/p, scaled by Wheeler's skin matrix S.
-The series impedance is `R_dc + S (z(s + w_c) - z(w_c))` with `w_c = pi (R_dc/S)^2`
-(`skinCrossover`): every stage keeps positive R and L, the rate moves to p + w_c and R
-to R p/(p + w_c). For one conductor this is `sqrt(R_dc^2 + S^2 s/pi)`: exactly R_dc at
-DC, Wheeler's `S (1 + j) sqrt(f)` once skin effect dominates, and no double counting
-through the crossover. Rows coupled by mutual skin terms share one `w_c`, the geometric
-mean of their own, because V = S diag(z_j) I is reciprocal only with equal z_j. Mutual
-skin loss is retained. Against an independent filament solve of the strip and planes,
-R(f) is within −8.7% to +5.7% from 10 MHz to 5 GHz on a 0.1 × 0.0152 mm and a
-0.2 × 0.035 mm stripline, and the ladder's AC attenuation within −8.7% to +3.4%
-(golden checks 27 and 28). Roughness is not modelled: no roughness input exists.
+Each skin branch is an R in parallel with L = R/p. Wheeler's skin matrix S splits into
+each conductor's own wall share `a_i` (`stripSkinResistance`, walls of the signal
+conductors receded with the planes fixed) and a remainder `S - diag(a)`: plane loss and
+every mutual term. The series impedance is
+`R_dc + diag(a_i (z(s + w_i) - z(w_i))) + (S - diag(a)) z(s)` with `w_i = pi (R_dc,i/a_i)^2`
+(`skinCrossover`). The own share is a scalar chain per row whose stages keep positive R
+and L (rate p + w_i, resistance R p/(p + w_i)); with R_dc it gives
+`sqrt(R_dc^2 + a^2 s/pi)`: exactly R_dc at DC and Wheeler's loss once skin effect
+dominates, with no double counting. The remainder has no DC part and keeps the plain
+`sqrt(f)` network, as a scalar chain or, for coupled rows, one normalized multiport.
+`a_i` is capped at `S_ii - sum_j |S_ij|`, which keeps the remainder diagonally dominant,
+so the whole network is passive and reciprocal; `capped_skin_cells` in the evidence counts
+capped rows. Each row keeps its own `w_i`; nothing is shared between rows. The second
+chain adds 18 elements per cell. Against an independent filament solve (golden checks
+27–29b): R(f) within −4.7% to +4.4% on traces with w/t 5.7–6.6 from 10 MHz to 5 GHz;
+on a wide thin trace (0.3 × 0.0152 mm, w/t 20) −11.1% at 10 MHz and +6.2% at 200 MHz.
+The 10 MHz shortfall is the model's half-space planes against real 15.2 µm planes
+(3–6 points); the mid-band overshoot is the crossover shape. Coupled-pair modal
+attenuation is within −7.8% to +4.7% (symmetric) and −10.7% to +5.8% (mixed copper
+thickness). Roughness is not modelled: no roughness input exists.
 
 Dielectric loss uses positive series-RC Debye branches with matrix capacitance
 `2*delta(log p)/pi * dielectricLoss`. The base C is reduced so the reactive C
