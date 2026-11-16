@@ -26,7 +26,7 @@ skip without `IBIS_MODEL_DIR` or without the named file (`sprm552c.ibs`, `W631GG
 
 ## Results
 
-Measured on 2026-11-14, after the fixes listed under Findings. Cross-sections use b = 1 mm and copper unless stated otherwise.
+Measured on 2026-11-14 (#27 and #28 on 2026-11-16), after the fixes listed under Findings. Cross-sections use b = 1 mm and copper unless stated otherwise.
 
 | # | Check | Reference | Expected / tolerance (fixed in advance) | Measured | Status |
 |---|---|---|---|---|---|
@@ -56,6 +56,8 @@ Measured on 2026-11-14, after the fixes listed under Findings. Cross-sections us
 | 24 | Coupled microstrip pair: even and odd delays from L, C | Paul, *MTL* §5.2 | each within 1% | even +0.05%, odd +0.14% (583 vs 524 ps predicted) | pass |
 | 25 | Settled (DC) voltage = divider including R_dc·l (ngspice `.op`) | Ohm's law | ≤ 1e-5 V | 1e-10 V | pass |
 | 26 | Vendor buffers into their own IBIS fixtures (Model_336/352/343, DATA_34/40; both edges, both 50 Ω fixtures) | the vendor [Rising/Falling Waveform] tables | max \|ΔV\| ≤ 2% of swing; \|Δt50\| ≤ 10 ps | 20 replays: ≤ 0.60% of swing, ≤ 0.80 ps | pass |
+| 27 | Simulated series R(f) = R_dc + S·Re z(jω) against a filament solve, 10 MHz – 5 GHz (centred striplines, εr 4.1: 0.1 × 0.0152 mm in b = 0.2152 mm; 0.2 × 0.035 mm in b = 0.5 mm) | Filament (PEEC) method, Weeks et al., *IBM J. Res. Dev.* 23 (1979) 652; two-plane image Green function; plane loss from the induced surface current | within 10% at each of 9 frequencies | +11.2% to +46.8% (50 MHz); +9.4% to +49.0% (10 MHz) | todo |
+| 28 | Ladder attenuation from ngspice AC, α l = Re acosh(V_near/V_far) with the far end open, 100 mm of the 0.1 × 0.0152 mm stripline, 10 MHz – 5 GHz | α = Re √((R + jωL)·jωC), R and L from the filament solve of #27, C from the field solver (#2–#6) | within 10% at each of 9 frequencies | +11.6% (5 GHz) to +45.3% (103 MHz), 125 cells | todo |
 
 ## Findings
 
@@ -64,6 +66,7 @@ Measured on 2026-11-14, after the fixes listed under Findings. Cross-sections us
 | Fixed: the 12-panel mesh under-resolved wide conductors | #5 was 4.0% high (C/C_pp 1.0633); #10 had r(40) = 1.85 | Each horizontal conductor face had a fixed panel count, so the middle panel of a 20 mm strip spanned about 6 gaps. A face longer than six plane distances now gets panels in proportion to its length (`cross-section-mesh.ts`). DDR-width faces mesh exactly as before. |
 | Fixed: causal-loss quadrature ripple | #13 was 7.2% (phase), #14 was 18.5% (local slope) | One pole per decade from 10 kHz to 1 THz rippled in band. The same nine poles now sit from 10^6.25 to 10^10.5 Hz with nonnegative least-squares weights fitted over 10 MHz–5 GHz (`causal-loss.ts`); every element stays positive, so the network stays passive (#12). Above 10 GHz the skin R is 4% high and rises to 29% at 30 GHz, beyond the ladder's band. |
 | Fixed: ladder dispersion on long runs | #22 was 14.3 mV (67 cells) | Lumped-ladder phase error grows with run delay × cell delay², so a fixed 10 cells per rise rings more on longer runs. Runs longer than two rise times now shrink their cells by √(two rise times / run delay) (`route-ladder.ts`). The DDR3 addr/cmd deck grows from 1835 to 2080 cells (+13%). These test decks now use the production `klu pivrel=0.1` options; without them the denser pair deck took 181 s instead of 9 s in KLU refactorisation. |
+| Open: conductor loss counts DC and skin resistance twice through the crossover | #27, #28 | The ladder puts R_dc in series with the Foster network for S(1 + j)√f, so R(f) is the plain sum. The standalone `atFrequency` uses `hypot(R_dc, R_hf)`, but the pipeline strips it before simulation, and #7–#11 test that function or the skin coefficient, not the simulated network. |
 | Fixed reference: Pozar gives attenuation, not R | #11 read 0.855–0.886 | Pozar's α_c contains his zero-thickness Z0 (65.4 Ω at w/b 1, against 61.3 Ω for this strip), and the old test converted α_c to R with that Z0, a (Z0 ratio)² ≈ 12% bias. Comparing α_c = R/(2Z0) with each side's own Z0 gives 0.92–0.93. The remaining 7% is inside the fit's declared 10%. |
 | Fixed check: the trend floor sat below the thickness bias | #3 plateaued at 0.26% | At t/b = 5e-4 the plateau is the strip's thickness against Cohn's zero-thickness answer (~0.24% for w/b 0.25). The check now uses t/b = 1e-5, where the bias scales to ~0.007%, with a 0.02% floor declared before the run. |
 | Vendor AM335x package passes, but its raw C is not Maxwell | #17 | All 30,450 off-diagonals are positive as written. The matrix is SPD and Maxwell only after the repo's documented sign correction. Summed \|mutual L\| per pin is 17–62 nH against 2.1–6.4 nH self, yet L is positive definite with k ≤ 0.627. |

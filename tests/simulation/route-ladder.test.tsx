@@ -6,7 +6,7 @@ import { RouteFieldsSolver } from '../../src/extraction'
 import { routeLadder, type RouteLadder } from '../../src/simulation/route-ladder'
 import { solveCrossSection, type CrossSection } from '../../src/extraction/cross-section'
 import type { ExtractedRoutes, RouteCoefficients } from '../../src/extraction/route-lines'
-import { crossingTime, ngspiceAvailable, runGoldenDeck, valueAt } from '../support/golden-checks'
+import { crossingTime, filamentImpedance, ngspiceAvailable, runGoldenDeck, valueAt } from '../support/golden-checks'
 
 /** Electrical identity follows physical TSX copper endpoints. */
 const endpoint = (wire: RouteWire, point: RouteXY): string => `${wire.layer}_${point.map(value => value.toFixed(8)).join('_')}`
@@ -221,4 +221,46 @@ test('golden stage 6: settled voltage equals the DC divider including the line r
   const expectedFar = 25 / (50 + resistance)
   context.diagnostic(JSON.stringify({ lineResistance: resistance, near, expectedNear, far, expectedFar }))
   assert.ok(Math.abs(near - expectedNear) <= 1e-5 && Math.abs(far - expectedFar) <= 1e-5, `near ${near} vs ${expectedNear}, far ${far} vs ${expectedFar}`)
+})
+
+test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native, todo: 'fails: ladder alpha is 27-45% high from 10 to 220 MHz and 11.6% high at 5 GHz (R_dc + S z(s) counts both asymptotes)' }, async context => {
+  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+  // The simulated line itself: 100 mm of the DDR3 board's inner trace (0.1 x 0.0152 mm, centred in b = 0.2152 mm,
+  // er 4.1, lossless dielectric so only conductor loss remains). ngspice AC drives the near end with 1 A and leaves the
+  // far end open; for a chain of identical symmetric cells V_near/V_far = cosh(gamma l) exactly, so
+  // alpha l = Re acosh(V_near/V_far). Reference alpha = Re sqrt((R + j w L) j w C) with R and L from the independent
+  // filament solve (filamentImpedance: strip, crossover, skin effect and plane loss) and C from the field solver,
+  // which golden checks 2–6 pin to 0.3%. Tolerance 10% at every frequency, declared before this deck first ran:
+  // alpha follows R at most one to one; the per-metre R check (causal-loss.test.ts) allows 10%; ladder dispersion
+  // at 10 cells per 100 ps rise is ~0.4% at 5 GHz. Before this fix the ladder used R_dc + S z(s), 37–47% high in R
+  // from 10 to 200 MHz on this strip.
+  const section: CrossSection = { conductors: [{ id: 's', xMm: 0, zMm: .1, widthMm: .1, thicknessMm: .0152 }], planes: [{ zMm: 0 }, { zMm: .2152 }], dielectrics: [{ zMm: 0, thicknessMm: .2152, er: 4.1, lossTangent: 0 }] }
+  const { line, ladder } = straightLine(section, 1)
+  const deck = ['* conductor loss', '.options klu reltol=1e-4 abstol=1e-12 vntol=1e-7 pivrel=0.1', 'I0 0 near0 DC 0 AC 1', 'RN0 near0 0 1e12', 'RF0 far0 0 1e12', ...ladder.lines,
+    '.control', 'set wr_singlescale', 'set wr_vecnames', 'set numdgt=12', 'ac dec 3 1e7 5e9', 'wrdata golden.dat v(near0) v(far0)', 'quit', '.endc', '.end'].join('\n') + '\n'
+  const rows = await runGoldenDeck(deck)
+  const reference = filamentImpedance({ widthM: .1e-3, thicknessM: .0152e-3, bottomM: .1e-3, spacingM: .2152e-3, conductivity: 5.8e7 }, rows.map(row => row[0]))
+  const metres = lengthMm / 1000
+  const records: Record<string, number>[] = []
+  const failures: string[] = []
+  for (const [k, [frequency, nearRe, nearIm, farRe, farIm]] of rows.entries()) {
+    // w = V_near / V_far; alpha l = ln |w + sqrt(w^2 - 1)|, taking the root with |.| >= 1.
+    const denominator = farRe ** 2 + farIm ** 2
+    const w = [(nearRe * farRe + nearIm * farIm) / denominator, (nearIm * farRe - nearRe * farIm) / denominator]
+    const square = [w[0] ** 2 - w[1] ** 2 - 1, 2 * w[0] * w[1]]
+    const modulus = Math.hypot(square[0], square[1])
+    const root = [Math.sqrt((modulus + square[0]) / 2), Math.sign(square[1] || 1) * Math.sqrt((modulus - square[0]) / 2)]
+    const simulated = Math.max(Math.hypot(w[0] + root[0], w[1] + root[1]), Math.hypot(w[0] - root[0], w[1] - root[1]))
+    const alpha = Math.log(simulated) / metres
+    // gamma^2 = (R + j w L)(j w C) = -w^2 L C + j w R C; alpha = Re sqrt(gamma^2).
+    const omega = 2 * Math.PI * frequency
+    const { resistance, inductance } = reference[k]
+    const gamma = [-(omega ** 2) * inductance * line.C[0][0], omega * resistance * line.C[0][0]]
+    const expected = Math.sqrt((Math.hypot(gamma[0], gamma[1]) + gamma[0]) / 2)
+    records.push({ frequencyHz: +frequency.toPrecision(4), referenceRohmPerM: +resistance.toFixed(3), referenceDbPerM: +(8.685889638 * expected).toFixed(4), ladderDbPerM: +(8.685889638 * alpha).toFixed(4), errorPercent: +(100 * (alpha / expected - 1)).toFixed(2) })
+    if (!(Math.abs(alpha / expected - 1) <= .1)) failures.push(`${frequency} Hz: alpha ${alpha} vs ${expected} Np/m`)
+  }
+  context.diagnostic(JSON.stringify({ cells: ladder.cells, records }))
+  console.table(records)
+  assert.deepEqual(failures, [])
 })

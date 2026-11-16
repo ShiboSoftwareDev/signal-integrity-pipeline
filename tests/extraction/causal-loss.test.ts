@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { causalLossPoles, causalLossResponse } from '../../src/extraction'
+import { causalLossPoles, causalLossResponse, solveCrossSection } from '../../src/extraction'
+import { filamentImpedance } from '../support/golden-checks'
 
 test('positive-real loss quadrature is bounded over the DDR edge band', () => {
   assert.ok(causalLossPoles().every(pole => pole.rate > 0 && pole.skin > 0 && pole.dielectric > 0))
@@ -46,4 +47,32 @@ test('golden stage 3: causal dielectric loss obeys the Kramers–Kronig slope lo
     const expected = -2 / Math.PI * response.dielectricReal / (2 * Math.PI * frequency)
     assert.ok(Math.abs(slope / expected - 1) <= .05, `${frequency} Hz: ${slope} vs ${expected}`)
   }
+})
+
+test('golden stage 3: simulated conductor resistance follows a filament reference from 10 MHz to 5 GHz', { todo: 'fails: R_dc + S z(s) is 37-49% high at 10-50 MHz and 9-11% high at 5 GHz' }, () => {
+  // The ladder's series resistance per metre is R_dc + S Re z(jw) (route-energy.ts skinEnergy). Reference: an
+  // independent filament (PEEC) solve of the same rectangular strip between copper planes (filamentImpedance;
+  // Weeks et al., IBM J. Res. Dev. 1979), which resolves DC, the crossover and skin effect with no Wheeler or
+  // interpolation input. Two centred striplines, er 4.1: 0.1 x 0.0152 mm in b = 0.2152 mm (the DDR3 board's inner trace)
+  // and 1 oz 0.2 x 0.035 mm in b = 0.5 mm. Tolerance 10% at every frequency: a two-asymptote form with exact DC and
+  // Wheeler high-frequency limits should land within it; the filament reference under-resolves the skin depth above
+  // 1 GHz and converges from below (~1% at 5 GHz on the thin strip, a few % on the 1 oz strip, between 40 x 16 and
+  // 60 x 24 cells); the Foster fit adds <= 0.8%.
+  const frequencies = [1e7, 2e7, 5e7, 1e8, 2e8, 5e8, 1e9, 2e9, 5e9]
+  const rows: Record<string, number | string>[] = []
+  const failures: string[] = []
+  for (const [label, w, t, b] of [['0.1 x 0.0152 mm, b 0.2152', .1, .0152, .2152], ['0.2 x 0.035 mm, b 0.5', .2, .035, .5]] as const) {
+    const line = solveCrossSection({ conductors: [{ id: 's', xMm: 0, zMm: (b - t) / 2, widthMm: w, thicknessMm: t }], planes: [{ zMm: 0 }, { zMm: b }], dielectrics: [{ zMm: 0, thicknessMm: b, er: 4.1, lossTangent: 0 }] })
+    const dc = line.dcResistance[0][0]
+    const skin = line.skinResistance[0][0]
+    const reference = filamentImpedance({ widthM: w * 1e-3, thicknessM: t * 1e-3, bottomM: (b - t) / 2 * 1e-3, spacingM: b * 1e-3, conductivity: 5.8e7 }, frequencies)
+    for (const { frequency, resistance } of reference) {
+      const realized = dc + skin * causalLossResponse(frequency).skinReal
+      const error = realized / resistance - 1
+      rows.push({ strip: label, frequencyHz: frequency, referenceOhmPerM: +resistance.toFixed(3), simulatedOhmPerM: +realized.toFixed(3), errorPercent: +(100 * error).toFixed(2) })
+      if (!(Math.abs(error) <= .1)) failures.push(`${label} at ${frequency} Hz: ${realized} vs ${resistance}`)
+    }
+  }
+  console.table(rows)
+  assert.deepEqual(failures, [])
 })
