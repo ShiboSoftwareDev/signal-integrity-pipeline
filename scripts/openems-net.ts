@@ -23,6 +23,9 @@ export interface OpenemsNetOptions {
   maskMm?: number
   maximumFrequencyHz?: number
   frequencyPoints?: number
+  /** Leave every port after P1 open on both sides: a one-port TDR. A via-in-pad BGA end has no plane under its pad
+   * (the barrel fills it and the antipad clears the plane), so a lumped port there would float. */
+  openFarEnd?: boolean
   /** Default true: tan(delta) = 0 on both sides. False keeps the pipeline's nine Debye poles (about 25x slower FDTD). */
   losslessDielectric?: boolean
 }
@@ -162,9 +165,9 @@ export function openemsNet(circuit: CircuitJson, options: OpenemsNetOptions): { 
     '.options klu reltol=1e-4 abstol=1e-12 vntol=1e-7 pivrel=0.1',
     ...aliases, ...ladder.lines, ...oblique.lines, ...transitions.lines,
     ...nodes.map((node, i) => `RBIAS${i} ${node} 0 1e9`),
-    'VS1 S1 0 dc 0 ac 2', 'RS1 S1 P1 50', ...ports.slice(1).map((_, i) => `RL${i + 2} P${i + 2} 0 50`),
+    'VS1 S1 0 dc 0 ac 2', 'RS1 S1 P1 50', ...(options.openFarEnd ? [] : ports.slice(1).map((_, i) => `RL${i + 2} P${i + 2} 0 50`)),
     '.control', `ac lin ${frequencyPoints} ${step} ${maximumFrequencyHz}`, 'set wr_singlescale', 'set wr_vecnames',
-    `wrdata ladder-ac.txt ${ports.map((_, i) => `v(P${i + 1})`).join(' ')}`, 'quit', '.endc', '.end', ''].join('\n')
+    `wrdata ladder-ac.txt ${(options.openFarEnd ? ports.slice(0, 1) : ports).map((_, i) => `v(P${i + 1})`).join(' ')}`, 'quit', '.endc', '.end', ''].join('\n')
 
   const pcbTraces = circuit.filter(record => record.type === 'pcb_trace').filter(trace => scope.pcbTraceIds.includes(trace.pcb_trace_id))
   const selectedWires = geometry.wires.filter(wire => selectedTraces.includes(wire.trace))
@@ -234,7 +237,7 @@ export function openemsNet(circuit: CircuitJson, options: OpenemsNetOptions): { 
   const antipads = modelVias.flatMap(via => pours.filter(pour => !via.net.has(pour.net) && layer(pour.layer).zMin >= via.zMin - 1e-9 && layer(pour.layer).zMax <= via.zMax + 1e-9)
     .map(pour => ({ via: via.id, layer: pour.layer, x: via.x, y: via.y, radius: via.padRadius + .1, ...layer(pour.layer) })))
   const pads0 = circuit.filter(record => record.type === 'pcb_smtpad')
-  const modelPorts: OpenemsPort[] = ports.map(({ port, name }, i) => {
+  const modelPorts: OpenemsPort[] = (options.openFarEnd ? ports.slice(0, 1) : ports).map(({ port, name }, i) => {
     const frame = routeContactFrame(geometry, scope, name, [port.x, port.y])!
     const references = routeReferences(geometry, { ...frame, transverse: -port.x * frame.u[1] + port.y * frame.u[0] }, port.x * frame.u[0] + port.y * frame.u[1])
     const copper = layer(name)

@@ -73,12 +73,18 @@ for marker in model['markers']:
     b = float(np.interp(t, time, z_ladder))
     markers.append({**marker, 'openemsOhm': a, 'pipelineOhm': b, 'error': a / b - 1, 'pass': bool(abs(a / b - 1) <= Z0_TOLERANCE)})
 result['z0'] = markers
-window = (time >= OFFSET_SECONDS - 2 * RISE_SECONDS) & (time <= OFFSET_SECONDS + 2 * max([m['roundTripSeconds'] for m in model['markers']] + [1e-9]) + 4 * RISE_SECONDS)
+window = (time >= OFFSET_SECONDS - 2 * RISE_SECONDS) & (time <= OFFSET_SECONDS + max(2 * max([m['roundTripSeconds'] for m in model['markers']] + [0]), 1e-9) + 4 * RISE_SECONDS)
 deviation = np.abs(z_oems - z_ladder) * window
 worst = int(np.argmax(deviation))
 result['tdrWorst'] = {'seconds': float(time[worst] - OFFSET_SECONDS), 'openemsOhm': float(z_oems[worst]), 'pipelineOhm': float(z_ladder[worst])}
 result['tdr'] = {'seconds': (time[window] - OFFSET_SECONDS)[::4].tolist(), 'openemsOhm': z_oems[window][::4].tolist(), 'pipelineOhm': z_ladder[window][::4].tolist()}
 
+if len(names) == 1:
+    # One-port TDR into an open far end: one-way delay is half the time the reflection takes to reach +0.5.
+    t_open = [crossing(step_response(spectrum), 0.5) for spectrum in (openems['S11'], ladder['S11'])]
+    delays = [(t - t_reference) / 2 for t in t_open]
+    result['openEndDelaySeconds'] = {'openems': float(delays[0]), 'pipeline': float(delays[1]), 'error': float(delays[0] / delays[1] - 1),
+                                     'pass': bool(abs(delays[0] / delays[1] - 1) <= DELAY_TOLERANCE)}
 for name in names[1:]:
     s_oems = step_response(openems[name])
     s_ladder = step_response(ladder[name])
@@ -96,7 +102,7 @@ for name in names[1:]:
                     's21Db': {**bands, 'pass': bool(abs(bands[f'0-{S21_BAND_HZ / 1e9:.3g} GHz']['worstDb']) <= S21_TOLERANCE_DB)},
                     'curveDb': {'hz': frequency[::10].tolist(), 'openems': db[0][::10].tolist(), 'pipeline': db[1][::10].tolist()}}
 json.dump(result, open(output_path, 'w'), indent=1)
-print(json.dumps({'passivityMaxPower': power, 'z0': [(m['label'], round(m['openemsOhm'], 2), round(m['pipelineOhm'], 2), f"{m['error'] * 100:+.2f}%", m['pass']) for m in markers],
+print(json.dumps({'passivityMaxPower': power, 'openEndDelay': result.get('openEndDelaySeconds'), 'z0': [(m['label'], round(m['openemsOhm'], 2), round(m['pipelineOhm'], 2), f"{m['error'] * 100:+.2f}%", m['pass']) for m in markers],
                   'tdrWorst': result['tdrWorst'],
                   **{name: {'delay_ps': (round(result[name]['delaySeconds']['openems'] * 1e12, 2), round(result[name]['delaySeconds']['pipeline'] * 1e12, 2)),
                             'delayError': f"{result[name]['delaySeconds']['error'] * 100:+.2f}%", 'delayPass': result[name]['delaySeconds']['pass'],

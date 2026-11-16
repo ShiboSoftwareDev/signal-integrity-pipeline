@@ -50,6 +50,14 @@ test('openEMS generator: one microstrip net through one via, from pipeline geome
   assert.ok(resistance.length && resistance.every(value => value > 0 && value < 1e-6), 'DC resistance is kept only as a numerical anchor')
 })
 
+test('openEMS generator: an open far end leaves one port on both sides', async () => {
+  const circuit = await renderCoreSignals(<OpenemsViaBoard />)
+  const { model, deck } = openemsNet(circuit, { ...ids(circuit), openFarEnd: true })
+  assert.deepEqual(model.ports.map(port => port.name), ['P1'])
+  assert.doesNotMatch(deck, /^RL2 /m)
+  assert.match(deck, /^wrdata ladder-ac\.txt v\(P1\)$/m)
+})
+
 test('openEMS generator: Debye bands reproduce the pipeline dielectric at 1 GHz', () => {
   const band = debyeBand(0, 1, 4.5, .02)
   const omega = 2 * Math.PI * 1e9

@@ -184,3 +184,29 @@ not contradicted.
 openEMS's own passivity check gives a maximum |S11|² + |S21|² of 1.014 at 10 MHz, so its port
 normalisation carries about 0.7 % amplitude error at the bottom of the band.
 
+
+#### Real DDR3 nets: setup (fixed before any real-net FDTD run)
+
+The whole-net models do not fit the machine. Including neighbours within 1 mm, BA1 needs 62M
+cells even at 2 cells across the 0.1 mm trace, and A12 is similar. That is about 10 h of FDTD per
+net. Two findings from the board shaped the windowed setup that replaces them:
+
+- **Every DDR3 via is a via-in-pad at a BGA ball.** 18 of 24 nets have exactly two vias, at arc
+  length 0 and at the far end. The other 6 have none. There is no plane under such a pad: the
+  barrel fills it and the antipad clears the plane. A 50 Ω lumped port there would float, so the
+  BGA end is left **open on both sides**. The comparison is a one-port TDR from a cut in the route.
+- **The "voids" on the selected nets are the antipads of those same vias.** From the baseline
+  evidence, 6 of the 24 nets run over a void, for 0.65–0.80 mm per net with a lateral gap of at most
+  0.35 mm. Each void is the trace leaving its via-in-pad over the next plane's clearance. None is a
+  split or slot.
+
+Each window is the last 8 mm of route plus the U3-end via-in-pad and the open pad. The U1 port and
+its pad move to the cut, over a solid plane. The scope is 0.1 mm, so neighbour nets are almost
+entirely left out on both sides. The tolerances do not change. Z0 has no marker, because no
+straight run in the window reaches 8 mm. The delay check uses the open-end reflection: the one-way
+delay is half the time the TDR takes to reach ρ = +0.5, measured against the incident step.
+
+| Window | What it contains | Mesh |
+|---|---|---|
+| A12, last 8 mm | bottom-layer microstrip, its exit over the inner6 antipad (the void), and a through via to the U3 top pad | 9.8M cells, 0.033 mm |
+| BA1, last 8 mm | inner2 stripline between inner3 and inner1, and a blind via up to the U3 top pad | 4.1M cells, 0.025 mm |
