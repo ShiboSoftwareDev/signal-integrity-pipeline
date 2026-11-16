@@ -119,6 +119,7 @@ export function openemsNet(circuit: CircuitJson, options: OpenemsNetOptions): { 
   const materials = lossless ? { ...solved.materials, maskLoss: 0, substrateLoss: 0 } : solved.materials
   const extracted: ExtractedRoutes = { ...solved, materials, slices: solved.slices.map(slice => ({ ...slice, line: { ...slice.line,
     dcResistance: slice.line.dcResistance.map(row => row.map(value => value * 1e-6)), skinResistance: slice.line.skinResistance.map(row => row.map(value => value * 1e-6)),
+    stripSkinResistance: slice.line.stripSkinResistance.map(row => row.map(value => value * 1e-6)),
     dielectricLoss: lossless ? slice.line.dielectricLoss.map(row => row.map(() => 0)) : slice.line.dielectricLoss } })) }
   const layers = geometry.stack.copperLayers
   /** Copper layer z range in mm. */

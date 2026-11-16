@@ -48,6 +48,8 @@ test('openEMS generator: one microstrip net through one via, from pipeline geome
   assert.ok(values.length && values.every(value => value > 0), 'no zero-valued R, L or C: ngspice .ac turns 0 ohm || 0 H stages non-passive')
   const resistance = [...deck.matchAll(/^RARCD\d+ \S+ \S+ (\S+)$/gm)].map(match => Number(match[1]))
   assert.ok(resistance.length && resistance.every(value => value > 0 && value < 1e-6), 'DC resistance is kept only as a numerical anchor')
+  assert.match(deck, /^RARCQ\d+ /m, 'the trace-only skin loss retains its DC crossover')
+  assert.match(deck, /^RARCS\d+ /m, 'the plane skin loss retains its unshifted remainder after PEC scaling')
 })
 
 test('openEMS generator: an open far end leaves one port on both sides', async () => {
