@@ -139,8 +139,13 @@ export function crossingTime(rows: number[][], column: number, level: number, af
   return NaN
 }
 
-/** One rectangular strip centred at x = 0 between perfectly flat copper reference planes at z = 0 and z = b (SI units). */
-export interface FilamentStrip { widthM: number; thicknessM: number; bottomM: number; spacingM: number; conductivity: number }
+
+/** One rectangular strip between two flat copper reference planes at z = 0 and z = b (SI units, x is the centre). */
+export interface FilamentStrip { xM: number; widthM: number; thicknessM: number; bottomM: number }
+/** Strips between two planes of thickness `planeThicknessM` (Infinity for copper half-spaces) at spacing `spacingM`. */
+export interface FilamentLine { strips: FilamentStrip[]; spacingM: number; planeThicknessM: number; conductivity: number }
+/** Cells per strip: `x` across the width and `z` through the thickness (both even), geometric growth away from the faces. */
+export interface FilamentCells { x: number; z: number; xRatio: number; zRatio: number }
 
 /** Geometric cell edges on [0, length], `count` cells (even), finest at both ends with growth `ratio`. */
 function gradedEdges(length: number, count: number, ratio: number): number[] {
@@ -152,96 +157,165 @@ function gradedEdges(length: number, count: number, ratio: number): number[] {
   return edges
 }
 
-/** Mean of ln r over one a x b rectangle against itself: Maxwell's geometric mean distance (Rosa & Grover, 1912). */
-function selfLogDistance(a: number, b: number): number {
-  return Math.log(Math.hypot(a, b)) - 25 / 12 + 2 / 3 * (b / a) * Math.atan(a / b) + 2 / 3 * (a / b) * Math.atan(b / a)
-    - (a / b) ** 2 / 12 * Math.log(1 + (b / a) ** 2) - (b / a) ** 2 / 12 * Math.log(1 + (a / b) ** 2)
+/** Fourth antiderivative of ln r: d^4 F / dx^2 dz^2 = ln sqrt(x^2 + z^2). */
+function logPrimitive(x: number, z: number): number {
+  const r2 = x * x + z * z
+  const log = r2 > 0 ? Math.log(r2) / 2 : 0
+  const a = x !== 0 ? Math.atan(z / x) : 0
+  const b = z !== 0 ? Math.atan(x / z) : 0
+  return -((x ** 4 - 6 * x * x * z * z + z ** 4) * (log - 25 / 12) - 4 * x ** 3 * z * a - 4 * x * z ** 3 * b) / 24
+}
+
+/** Rectangle [x0, x1] x [z0, z1]. */
+interface FilamentCell { x0: number; x1: number; z0: number; z1: number }
+
+/**
+ * Exact mean of ln r between two rectangles: the closed-form primitive differenced over the 16 corner pairs, exact
+ * for any aspect ratio (the self term is Maxwell's geometric mean distance). Far pairs, where the differences
+ * cancel, use the centre distance.
+ */
+function meanLogDistance(a: FilamentCell, c: FilamentCell): number {
+  const distance = Math.hypot((a.x0 + a.x1 - c.x0 - c.x1) / 2, (a.z0 + a.z1 - c.z0 - c.z1) / 2)
+  if (distance > 40 * Math.max(a.x1 - a.x0, a.z1 - a.z0, c.x1 - c.x0, c.z1 - c.z0)) return Math.log(distance)
+  let total = 0
+  for (const [ax, sa] of [[a.x0, 1], [a.x1, -1]]) for (const [cx, sc] of [[c.x0, 1], [c.x1, -1]]) {
+    for (const [az, ta] of [[a.z0, 1], [a.z1, -1]]) for (const [cz, tc] of [[c.z0, 1], [c.z1, -1]]) total += sa * sc * ta * tc * logPrimitive(ax - cx, az - cz)
+  }
+  return total / ((a.x1 - a.x0) * (a.z1 - a.z0) * (c.x1 - c.x0) * (c.z1 - c.z0))
+}
+
+/** Complex Gaussian elimination of A X = B (A n x n, B n x m, split real/imaginary rows, overwritten); returns X. */
+function complexSolve(re: Float64Array[], im: Float64Array[], bre: Float64Array[], bim: Float64Array[]): { re: Float64Array[]; im: Float64Array[] } {
+  const n = re.length
+  const m = bre[0].length
+  for (let k = 0; k < n; k++) {
+    const pivot = re[k][k] ** 2 + im[k][k] ** 2
+    for (let i = k + 1; i < n; i++) {
+      const mr = (re[i][k] * re[k][k] + im[i][k] * im[k][k]) / pivot
+      const mi = (im[i][k] * re[k][k] - re[i][k] * im[k][k]) / pivot
+      const rowRe = re[i]
+      const rowIm = im[i]
+      const pivotRe = re[k]
+      const pivotIm = im[k]
+      for (let j = k; j < n; j++) {
+        rowRe[j] -= mr * pivotRe[j] - mi * pivotIm[j]
+        rowIm[j] -= mr * pivotIm[j] + mi * pivotRe[j]
+      }
+      for (let j = 0; j < m; j++) {
+        const r = bre[k][j]
+        const s = bim[k][j]
+        bre[i][j] -= mr * r - mi * s
+        bim[i][j] -= mr * s + mi * r
+      }
+    }
+  }
+  const xre = bre.map(() => new Float64Array(m))
+  const xim = bre.map(() => new Float64Array(m))
+  for (let k = n - 1; k >= 0; k--) for (let j = 0; j < m; j++) {
+    let sr = bre[k][j]
+    let si = bim[k][j]
+    for (let l = k + 1; l < n; l++) {
+      sr -= re[k][l] * xre[l][j] - im[k][l] * xim[l][j]
+      si -= re[k][l] * xim[l][j] + im[k][l] * xre[l][j]
+    }
+    const pivot = re[k][k] ** 2 + im[k][k] ** 2
+    xre[k][j] = (sr * re[k][k] + si * im[k][k]) / pivot
+    xim[k][j] = (si * re[k][k] - sr * im[k][k]) / pivot
+  }
+  return { re: xre, im: xim }
 }
 
 /**
- * Per-unit-length series impedance of `strip` by the filament (PEEC) method of Weeks, Wu, McAllister & Singh,
- * "Resistive and inductive skin effect in rectangular conductors", IBM J. Res. Dev. 23 (1979) 652–660. Independent of
- * the production solver: the strip is cut into graded uniform-current cells; cells couple through the exact
+ * Per-unit-length series impedance matrix of `line.strips` by the filament (PEEC) method of Weeks, Wu, McAllister &
+ * Singh, "Resistive and inductive skin effect in rectangular conductors", IBM J. Res. Dev. 23 (1979) 652–660.
+ * Independent of the production solver. Each strip is cut into graded uniform-current cells; cells couple through the
  * vector-potential Green function between two perfect planes, (mu0/4pi) ln[(cosh U - cos V+)/(cosh U - cos V-)],
- * U = pi dx/b, V± = pi (z ± z')/b (method of images summed in closed form); all cells see one longitudinal E and the
- * network is solved per frequency. Plane loss is then added from the surface current the solved cell currents induce on
- * each plane, K(x) = I sin(a)/(2b (cosh(pi dx/b) - cos a)), with surface impedance (1 + j) sqrt(pi f mu0/sigma) for
- * copper half-spaces: R_plane = Rs ∫|K|² dx / |I|², the same reactance. Returns R and L in ohm/m and H/m.
+ * U = pi dx/b, V± = pi (z ± z')/b, whose free-space part is integrated exactly over each cell pair (meanLogDistance)
+ * and whose smooth image part is taken at cell centres. All cells of one strip share one longitudinal field.
+ * Plane loss is a surface-impedance perturbation, not a plane solve: the solved cell currents induce
+ * K(x) = I sin(a)/(2b (cosh(pi dx/b) - cos a)) on each plane, and a plane of thickness t_p has surface impedance
+ * Zs = (1 + j)/(sigma delta) coth((1 + j) t_p/delta), so Z_plane = Zs ∫ K^H K dx. Returns R (ohm/m) and L (H/m).
  */
-export function filamentImpedance(strip: FilamentStrip, frequencies: number[], cells: { x: number; z: number; xRatio: number; zRatio: number } = { x: 40, z: 16, xRatio: 1.15, zRatio: 1.4 }): { frequency: number; resistance: number; inductance: number }[] {
+export function filamentImpedance(line: FilamentLine, frequencies: number[], cells: FilamentCells = { x: 48, z: 20, xRatio: 1.13, zRatio: 1.3 }): { frequency: number; R: number[][]; L: number[][] }[] {
   const mu0 = 1.25663706212e-6
-  const b = strip.spacingM
+  const b = line.spacingM
   const p = Math.PI / b
-  const xs = gradedEdges(strip.widthM, cells.x, cells.xRatio).map(x => x - strip.widthM / 2)
-  const zs = gradedEdges(strip.thicknessM, cells.z, cells.zRatio).map(z => z + strip.bottomM)
-  const parts = xs.slice(1).flatMap((x, i) => zs.slice(1).map((z, k) => ({ x: (x + xs[i]) / 2, z: (z + zs[k]) / 2, dx: x - xs[i], dz: z - zs[k] })))
+  const count = line.strips.length
+  const parts: (FilamentCell & { x: number; z: number; strip: number })[] = []
+  for (const [k, strip] of line.strips.entries()) {
+    const xs = gradedEdges(strip.widthM, cells.x, cells.xRatio).map(x => x + strip.xM - strip.widthM / 2)
+    const zs = gradedEdges(strip.thicknessM, cells.z, cells.zRatio).map(z => z + strip.bottomM)
+    for (let i = 0; i < cells.x; i++) for (let j = 0; j < cells.z; j++) {
+      parts.push({ x0: xs[i], x1: xs[i + 1], z0: zs[j], z1: zs[j + 1], x: (xs[i] + xs[i + 1]) / 2, z: (zs[j] + zs[j + 1]) / 2, strip: k })
+    }
+  }
   const n = parts.length
-  // Smooth image part of the Green function: G + (mu0/2pi) ln r, finite as r -> 0.
-  /** Image sum minus the free-space singularity, at two points. */
+  /** Image sum minus the free-space singularity, finite as r -> 0. */
   const images = (a: { x: number; z: number }, c: { x: number; z: number }): number => {
     const r2 = (a.x - c.x) ** 2 + (a.z - c.z) ** 2
     const near = r2 < 1e-30 ? p * p / 2 : (Math.cosh(p * (a.x - c.x)) - Math.cos(p * (a.z - c.z))) / r2
     return mu0 / (4 * Math.PI) * (Math.log(Math.cosh(p * (a.x - c.x)) - Math.cos(p * (a.z + c.z))) - Math.log(near))
   }
-  const gauss = [[-.8611363115940526, .3478548451374538], [-.3399810435848563, .6521451548625461], [.3399810435848563, .6521451548625461], [.8611363115940526, .3478548451374538]]
   const inductance = parts.map(() => new Float64Array(n))
   for (let i = 0; i < n; i++) for (let j = i; j < n; j++) {
-    const a = parts[i]
-    const c = parts[j]
-    let logDistance = 0
-    if (i === j) logDistance = selfLogDistance(a.dx, a.dz)
-    else if (Math.hypot(a.x - c.x, a.z - c.z) > 3 * Math.max(a.dx, a.dz, c.dx, c.dz)) logDistance = Math.log(Math.hypot(a.x - c.x, a.z - c.z))
-    else for (const [u1, w1] of gauss) for (const [v1, w2] of gauss) for (const [u2, w3] of gauss) for (const [v2, w4] of gauss) {
-      logDistance += w1 * w2 * w3 * w4 / 32 * Math.log((a.x + u1 * a.dx / 2 - c.x - u2 * c.dx / 2) ** 2 + (a.z + v1 * a.dz / 2 - c.z - v2 * c.dz / 2) ** 2)
-    }
-    inductance[i][j] = -mu0 / (2 * Math.PI) * logDistance + images(a, c)
+    inductance[i][j] = -mu0 / (2 * Math.PI) * meanLogDistance(parts[i], parts[j]) + images(parts[i], parts[j])
     inductance[j][i] = inductance[i][j]
   }
+  const step = b / 200
+  const centre = line.strips.reduce((sum, strip) => sum + strip.xM, 0) / count
+  const samples = Array.from({ length: 4801 }, (_, i) => centre - 12 * b + i * step)
   return frequencies.map(frequency => {
     const omega = 2 * Math.PI * frequency
-    // Complex Gaussian elimination of (R + j omega L) I = 1 V/m; the matrix is complex symmetric with a dominant diagonal.
-    const real = parts.map((part, i) => Float64Array.from({ length: n }, (_, j) => i === j ? 1 / (strip.conductivity * part.dx * part.dz) : 0))
-    const imaginary = inductance.map(row => row.map(value => omega * value))
-    const right = parts.map(() => [1, 0])
-    for (let k = 0; k < n; k++) {
-      const pivot = real[k][k] ** 2 + imaginary[k][k] ** 2
-      for (let i = k + 1; i < n; i++) {
-        const mr = (real[i][k] * real[k][k] + imaginary[i][k] * imaginary[k][k]) / pivot
-        const mi = (imaginary[i][k] * real[k][k] - real[i][k] * imaginary[k][k]) / pivot
-        for (let j = k; j < n; j++) {
-          real[i][j] -= mr * real[k][j] - mi * imaginary[k][j]
-          imaginary[i][j] -= mr * imaginary[k][j] + mi * real[k][j]
-        }
-        right[i] = [right[i][0] - (mr * right[k][0] - mi * right[k][1]), right[i][1] - (mr * right[k][1] + mi * right[k][0])]
-      }
+    const re = parts.map((part, i) => Float64Array.from({ length: n }, (_, j) => i === j ? 1 / (line.conductivity * (part.x1 - part.x0) * (part.z1 - part.z0)) : 0))
+    const im = inductance.map(row => row.map(value => omega * value))
+    // Unit longitudinal field on strip k only: cell currents Y = Zf^-1 E, strip currents M = E^T Y, impedance M^-1.
+    const field = parts.map(part => Float64Array.from({ length: count }, (_, k) => Number(part.strip === k)))
+    const admittance = complexSolve(re, im, field, parts.map(() => new Float64Array(count)))
+    const sums = { re: line.strips.map(() => new Float64Array(count)), im: line.strips.map(() => new Float64Array(count)) }
+    for (const [i, part] of parts.entries()) for (let k = 0; k < count; k++) {
+      sums.re[part.strip][k] += admittance.re[i][k]
+      sums.im[part.strip][k] += admittance.im[i][k]
     }
-    const current = parts.map(() => [0, 0])
-    for (let k = n - 1; k >= 0; k--) {
-      let [sr, si] = right[k]
-      for (let j = k + 1; j < n; j++) {
-        sr -= real[k][j] * current[j][0] - imaginary[k][j] * current[j][1]
-        si -= real[k][j] * current[j][1] + imaginary[k][j] * current[j][0]
+    const impedance = complexSolve(sums.re, sums.im, line.strips.map((_, i) => Float64Array.from({ length: count }, (_, j) => Number(i === j))), line.strips.map(() => new Float64Array(count)))
+    // Cell currents for unit strip currents: Y M^-1.
+    const current = parts.map((_, i) => line.strips.map((_, l) => {
+      let r = 0
+      let s = 0
+      for (let k = 0; k < count; k++) {
+        r += admittance.re[i][k] * impedance.re[k][l] - admittance.im[i][k] * impedance.im[k][l]
+        s += admittance.re[i][k] * impedance.im[k][l] + admittance.im[i][k] * impedance.re[k][l]
       }
-      const pivot = real[k][k] ** 2 + imaginary[k][k] ** 2
-      current[k] = [(sr * real[k][k] + si * imaginary[k][k]) / pivot, (si * real[k][k] - sr * imaginary[k][k]) / pivot]
-    }
-    const total = current.reduce(([r, i], [cr, ci]) => [r + cr, i + ci], [0, 0])
-    const magnitude = total[0] ** 2 + total[1] ** 2
-    let surface = 0
-    const step = b / 300
-    for (let x = -12 * b; x <= 12 * b; x += step) for (const top of [false, true]) {
-      let kr = 0
-      let ki = 0
-      for (const [k, part] of parts.entries()) {
+      return [r, s]
+    }))
+    const delta = 1 / Math.sqrt(Math.PI * frequency * mu0 * line.conductivity)
+    // coth(u + ju) = (sinh 2u - j sin 2u)/(cosh 2u - cos 2u), u = t_p/delta; a half-space has coth = 1.
+    const u = line.planeThicknessM / delta
+    const finite = Number.isFinite(u) && u < 40
+    const cothRe = finite ? Math.sinh(2 * u) / (Math.cosh(2 * u) - Math.cos(2 * u)) : 1
+    const cothIm = finite ? -Math.sin(2 * u) / (Math.cosh(2 * u) - Math.cos(2 * u)) : 0
+    const surfaceRe = (cothRe - cothIm) / (line.conductivity * delta)
+    const surfaceIm = (cothRe + cothIm) / (line.conductivity * delta)
+    const plane = { re: line.strips.map(() => Array(count).fill(0)), im: line.strips.map(() => Array(count).fill(0)) }
+    const sheet = line.strips.map(() => [0, 0])
+    for (const x of samples) for (const top of [false, true]) {
+      for (const entry of sheet) entry.fill(0)
+      for (const [i, part] of parts.entries()) {
         const angle = p * (top ? b - part.z : part.z)
         const kernel = Math.sin(angle) / (2 * b * (Math.cosh(p * (x - part.x)) - Math.cos(angle)))
-        kr += current[k][0] * kernel
-        ki += current[k][1] * kernel
+        for (let l = 0; l < count; l++) {
+          sheet[l][0] += current[i][l][0] * kernel
+          sheet[l][1] += current[i][l][1] * kernel
+        }
       }
-      surface += (kr * kr + ki * ki) * step
+      for (let k = 0; k < count; k++) for (let l = 0; l < count; l++) {
+        const r = sheet[k][0] * sheet[l][0] + sheet[k][1] * sheet[l][1]
+        const s = sheet[k][0] * sheet[l][1] - sheet[k][1] * sheet[l][0]
+        plane.re[k][l] += (surfaceRe * r - surfaceIm * s) * step
+        plane.im[k][l] += (surfaceRe * s + surfaceIm * r) * step
+      }
     }
-    const plane = Math.sqrt(Math.PI * frequency * mu0 / strip.conductivity) * surface / magnitude
-    // Z = 1 / I_total for the unit driving field, plus the planes' (1 + j) R_plane surface impedance.
-    return { frequency, resistance: total[0] / magnitude + plane, inductance: (-total[1] / magnitude + plane) / omega }
+    const R = line.strips.map((_, k) => line.strips.map((_, l) => (impedance.re[k][l] + impedance.re[l][k] + plane.re[k][l] + plane.re[l][k]) / 2))
+    const L = line.strips.map((_, k) => line.strips.map((_, l) => (impedance.im[k][l] + impedance.im[l][k] + plane.im[k][l] + plane.im[l][k]) / 2 / omega))
+    return { frequency, R, L }
   })
 }
