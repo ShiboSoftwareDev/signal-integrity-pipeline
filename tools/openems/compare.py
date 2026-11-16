@@ -62,7 +62,8 @@ def impedance(spectrum):
     return 50 * (1 + rho) / (1 - rho)
 
 
-result = {'tolerances': {'z0': Z0_TOLERANCE, 'delay': DELAY_TOLERANCE, 's21Db': S21_TOLERANCE_DB, 's21BandHz': S21_BAND_HZ}, 'riseSeconds': RISE_SECONDS}
+power = {side: float(np.max(sum(np.abs(data[name]) ** 2 for name in names))) for side, data in (('openems', openems), ('pipeline', ladder))}
+result = {'passivityMaxPower': power, 'tolerances': {'z0': Z0_TOLERANCE, 'delay': DELAY_TOLERANCE, 's21Db': S21_TOLERANCE_DB, 's21BandHz': S21_BAND_HZ}, 'riseSeconds': RISE_SECONDS}
 z_oems = impedance(openems['S11'])
 z_ladder = impedance(ladder['S11'])
 markers = []
@@ -95,7 +96,7 @@ for name in names[1:]:
                     's21Db': {**bands, 'pass': bool(abs(bands[f'0-{S21_BAND_HZ / 1e9:.3g} GHz']['worstDb']) <= S21_TOLERANCE_DB)},
                     'curveDb': {'hz': frequency[::10].tolist(), 'openems': db[0][::10].tolist(), 'pipeline': db[1][::10].tolist()}}
 json.dump(result, open(output_path, 'w'), indent=1)
-print(json.dumps({'z0': [(m['label'], round(m['openemsOhm'], 2), round(m['pipelineOhm'], 2), f"{m['error'] * 100:+.2f}%", m['pass']) for m in markers],
+print(json.dumps({'passivityMaxPower': power, 'z0': [(m['label'], round(m['openemsOhm'], 2), round(m['pipelineOhm'], 2), f"{m['error'] * 100:+.2f}%", m['pass']) for m in markers],
                   'tdrWorst': result['tdrWorst'],
                   **{name: {'delay_ps': (round(result[name]['delaySeconds']['openems'] * 1e12, 2), round(result[name]['delaySeconds']['pipeline'] * 1e12, 2)),
                             'delayError': f"{result[name]['delaySeconds']['error'] * 100:+.2f}%", 'delayPass': result[name]['delaySeconds']['pass'],

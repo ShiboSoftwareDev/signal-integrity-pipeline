@@ -108,13 +108,14 @@ export function openemsNet(circuit: CircuitJson, options: OpenemsNetOptions): { 
   fields.solve()
   if (fields.failed) throw new Error(fields.error ?? 'Route fields failed')
   const solved = fields.getOutput().value
-  // Like-for-like with PEC openEMS copper: skin loss is removed and DC resistance scaled by 1e-6 (zero would divide
-  // the normalized coupled-resistance multiport by sqrt(Rii)). Only this comparison ladder changes.
+  // Like-for-like with PEC openEMS copper: DC and skin resistance are scaled by 1e-6, not zeroed. Zero values emit
+  // 0 ohm || 0 H Foster stages, which made ngspice .ac non-passive (|S11|^2 + |S21|^2 = 1.5) and left coupled
+  // multiport nodes singular (13 h stuck in gmin stepping on DDR3 BA0). Only this comparison ladder changes.
   // A lossless dielectric drops the Foster branches, leaving C at the 1 GHz permittivity on both sides.
   const lossless = options.losslessDielectric ?? true
   const materials = lossless ? { ...solved.materials, maskLoss: 0, substrateLoss: 0 } : solved.materials
   const extracted: ExtractedRoutes = { ...solved, materials, slices: solved.slices.map(slice => ({ ...slice, line: { ...slice.line,
-    dcResistance: slice.line.dcResistance.map(row => row.map(value => value * 1e-6)), skinResistance: slice.line.skinResistance.map(row => row.map(() => 0)),
+    dcResistance: slice.line.dcResistance.map(row => row.map(value => value * 1e-6)), skinResistance: slice.line.skinResistance.map(row => row.map(value => value * 1e-6)),
     dielectricLoss: lossless ? slice.line.dielectricLoss.map(row => row.map(() => 0)) : slice.line.dielectricLoss } })) }
   const layers = geometry.stack.copperLayers
   /** Copper layer z range in mm. */

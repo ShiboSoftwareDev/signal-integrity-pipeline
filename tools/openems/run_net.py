@@ -27,6 +27,8 @@ parser.add_argument('--dry', action='store_true')
 parser.add_argument('--end-ns', type=float, default=6.0)
 parser.add_argument('--fine-mm', type=float, default=None, help='finest lateral cell; default min(trace width)/4')
 parser.add_argument('--air-mm', type=float, default=3.0)
+parser.add_argument('--z-cells', type=int, default=6, help='cells per dielectric gap')
+parser.add_argument('--thirds', action='store_true', help='axis-aligned selected trace edges get the 1/3-2/3 rule instead of a line on the edge')
 args = parser.parse_args()
 
 model = json.load(open(args.model))
@@ -54,6 +56,14 @@ def cover(axis, lo, hi, step):
     """Uniform lines across [lo, hi] no wider than step."""
     count = max(1, int(np.ceil((hi - lo) / step - 1e-9)))
     lines[axis].extend(np.linspace(lo, hi, count + 1).tolist())
+
+
+def strip(axis, lo, hi):
+    """Fine lines across a conductor's width; with --thirds, a third of the edge cell lies inside the metal."""
+    if not args.thirds:
+        return cover(axis, lo, hi, fine)
+    cover(axis, lo + fine / 3, hi - fine / 3, fine)
+    lines[axis].extend([lo - 2 * fine / 3, hi + 2 * fine / 3])
 
 
 # Dielectric bands, one Debye property each; holes and antipads reuse the band at their height.
@@ -109,10 +119,10 @@ for trace in model['traces']:
         lines['x'].extend([lo_x, hi_x])
         lines['y'].extend([lo_y, hi_y])
     elif abs(by - ay) < 1e-9:
-        cover('y', lo_y, hi_y, fine)
+        strip('y', lo_y, hi_y)
         lines['x'].extend([lo_x, hi_x])
     elif abs(bx - ax) < 1e-9:
-        cover('x', lo_x, hi_x, fine)
+        strip('x', lo_x, hi_x)
         lines['y'].extend([lo_y, hi_y])
     else:
         cover('x', lo_x, hi_x, fine)
@@ -139,7 +149,7 @@ for via in model['vias']:
 # z: every copper face and band interface; copper is one cell thick, a dielectric gap at least six cells.
 faces = sorted({value for layer in model['copper'] for value in (layer['zMin'], layer['zMax'])} | {value for band in model['bands'] for value in (band['zMin'], band['zMax'])})
 for lo, hi in zip(faces[:-1], faces[1:]):
-    cover('z', lo, hi, (hi - lo) / 6 if hi - lo > 0.04 else hi - lo)
+    cover('z', lo, hi, (hi - lo) / args.z_cells if hi - lo > 0.04 else hi - lo)
 lines['z'].extend([region['zMin'] - args.air_mm - 8 * z_coarse, region['zMin'] - args.air_mm, region['zMax'] + args.air_mm, region['zMax'] + args.air_mm + 8 * z_coarse])
 
 fdtd = openEMS(EndCriteria=1e-4, MaxTime=args.end_ns * 1e-9)
@@ -170,7 +180,7 @@ counts = [len(grid.GetLines(axis)) for axis in 'xyz']
 deltas = [np.diff(grid.GetLines(axis)).min() * unit for axis in 'xyz']
 dt = 1 / (C0 * np.sqrt(sum(1 / d ** 2 for d in deltas)))
 summary = {'cells': int(np.prod(counts)), 'lines': counts, 'minimumCellMm': [d / unit for d in deltas], 'fineMm': fine, 'coarseMm': coarse,
-           'courantStepSeconds': dt, 'steps': int(args.end_ns * 1e-9 / dt), 'threads': args.threads}
+           'courantStepSeconds': dt, 'steps': int(args.end_ns * 1e-9 / dt), 'threads': args.threads, 'thirds': args.thirds, 'zCells': args.z_cells}
 print(json.dumps(summary))
 json.dump(summary, open(os.path.join(args.output, 'mesh.json'), 'w'), indent=1)
 if args.dry:
