@@ -126,7 +126,7 @@ export async function runCrossCheck(deck: string, out: string, mutual: XyceMutua
   }
   const xyceRun = await timed(out, process.env.XYCE ?? 'Xyce', ['xyce.cir'])
   await writeFile(join(out, 'xyce.log'), xyceRun.stdout)
-  const steps = /Number Successful Steps Taken:\s*(\d+)/.exec(xyceRun.stdout)?.[1]
+  const steps = [...xyceRun.stdout.matchAll(/Number Successful Steps Taken:\s*(\d+)/g)].at(-1)?.[1]
   const result = compareWaveforms(ngspice, xyceColumns(await readFile(join(out, 'waveform.csv'), 'utf8')))
   const report: CrossCheckRun = { ...result, mutual, ngspice: ngspiceRun ? { seconds: ngspiceRun.seconds, peakRssMiB: ngspiceRun.peakRssMiB } : 'capture', xyce: { seconds: xyceRun.seconds, peakRssMiB: xyceRun.peakRssMiB, steps: steps ? Number(steps) : null } }
   await writeFile(join(out, 'report.json'), JSON.stringify({ ...report, tolerance: CROSS_CHECK_TOLERANCE }, null, 2))

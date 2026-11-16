@@ -72,7 +72,11 @@ PREFIX=~/.local/xyce JOBS=6 scripts/xyce-build.sh   # heavy: run it through the 
 ```
 
 The build uses Xyce's own `cmake/trilinos/trilinos-base.cmake` preset, with OpenBLAS for
-BLAS/LAPACK and AMD from SuiteSparse.
+BLAS/LAPACK and AMD from SuiteSparse. Apple clang 21 needs two workarounds, both in the script.
+AztecOO calls undeclared C functions, so the build adds `-Wno-error=implicit-function-declaration`.
+Xyce's `N_LAS_BlockSystemHelpers.C` calls `std::abs<double>(x)`, which libc++ rejects as ambiguous,
+so the script rewrites it to `std::abs(x)`. With `-j6` the whole build took about 10 minutes of wall time on this Mac (87 s + 425 s + 52 s
+over three runs, resuming after each fix).
 
 ## Running
 
@@ -87,4 +91,60 @@ tsx scripts/xyce-cross-check.ts <simulation.cir> <outdir> --capture capture.json
 
 ## Results
 
-Not yet run.
+Measured on 2026-11-16 on an Apple Silicon Mac (10 cores, 16 GB), one simulator at a time, single-threaded:
+ngspice 47 (Homebrew) and Xyce 7.10.0 serial, built with `scripts/xyce-build.sh`. Decks are compiled
+at `feat/si-cosmos-site` 8378539. The tolerances above were committed before any run and are unchanged.
+
+| Run | Deck | Saved nodes | ngspice / Xyce time points | Worst \|ΔV\| | Worst 50 % Δt | Verdict |
+|---|---|---|---|---|---|---|
+| (a) | `tests/fixtures/two-trace.cir`, 4 ns, VCVS mutuals | 3 | 320 / 406 | 11.4 mV (v(n6), 3.53 V swing) | 3.1 ps | **fail** (ΔV > 10 mV) |
+| (a) | same, native K | 3 | 320 / 425 | 12.5 mV | 2.5 ps | **fail** (ΔV > 10 mV) |
+| (b) | DDR3_ADDR_CMD, nets A3, A4, A5, 8 ns, 520 cells, 3.3 MB | 3 | 3,296 / 12,883 | 3.1 mV | 0.23 ps | **pass** |
+| (c) | DDR3_ADDR_CMD full block, 8 ns (baseline deck and capture) | 24 | see below | | | |
+
+Run time and peak memory for (b): ngspice took 55 s and 103 MiB. Xyce took 1,108 s and 501 MiB.
+Xyce took 3.9 times as many time points as ngspice and was 20 times slower.
+
+### Finding (a): both engines carry ~15 mV of time-step error at the deck's settings, and neither is wrong
+
+The 11.4 mV difference was traced to its source before reporting:
+
+1. **Converged reference.** The same deck was rerun in both engines with reltol = 1e-6, vntol = 1e-9 and
+   the step ceiling cut from 15.8 ps to 0.2 ps (about 20,000 points each). The two converged runs agree
+   to **0.48 µV** and 3.5e-5 ps on every node. The VCVS rewrite of the K lines was used on the Xyce side
+   and native K lines on the ngspice side, so the translation is exact as claimed.
+2. **Each nominal run against that reference**, at its own time points:
+
+   | Engine (nominal settings) | v(n6) | v(n14) | v(n11) |
+   |---|---|---|---|
+   | ngspice | 17.0 mV | 16.8 mV | 14.5 mV |
+   | Xyce, VCVS mutuals | 16.1 mV | 12.3 mV | 11.2 mV |
+   | Xyce, native K | 15.2 mV | 12.6 mV | 11.7 mV |
+
+   Both engines are off by similar amounts, and ngspice is slightly further off. The difference
+   between them is the difference between two step-error patterns, not an error in either engine.
+3. **Isolation.** With reltol unchanged and only the step ceiling cut to 2 ps, the engines agree to
+   0.03 mV (2,030 / 2,028 points). Both then sit 3.4 mV from the reference. The disagreement therefore
+   comes from the adaptive steps both engines take up to the deck's 15.8 ps ceiling
+   (`.tran step = maxstep = rise / cellsPerRise`). There, reltol = 1e-4 lets each engine take steps
+   of 12–16 ps across edges with a 3.5 V swing.
+
+**The predeclared justification was wrong for this deck.** Item 1 assumed steps near 1 ps on
+edges, but ngspice averages 12.5 ps here. The tolerance stays at 10 mV, and (a) is recorded as a
+fail. The physics finding: at production settings, ngspice waveforms on this deck carry up to about
+17 mV (0.5 % of swing) of time-step error. That is below the edge-timing scale (3 ps), but it is
+not negligible next to a 10 mV comparison. The DDR3 subset (b) has a 1.75 V swing and uses smaller
+steps, and it passes with 3.1 mV.
+
+Xyce native K against Xyce VCVS chains on (a): 2.9 mV apart, which is again only a different step
+pattern.
+
+### Finding: the drawing-only TwoTraceBoard fixture deck is singular in ngspice
+
+The routed deck of `tests/support/routed-visual-fixture.tsx` was not used for (a). Its synthetic IBIS
+has `R_pkg = L_pkg = C_pkg = 0`, so `VDECLARED0` (3.3 V), the zero-volt package source `VPKG2` and the die
+rail `VPDN2` form an ideal voltage-source loop. ngspice stops with "singular matrix: check node
+v.xibis2.vpdn2#branch … timestep too small". Replacing the zero-volt `VPKG` sources with 1 mΩ makes it
+run. Vendor models have package R, so real decks are unaffected. Any IBIS file whose `[Package]` is
+all zero would hit this, though. The fixture used here (`tests/support/xyce-two-trace.tsx`) has
+package parasitics instead.

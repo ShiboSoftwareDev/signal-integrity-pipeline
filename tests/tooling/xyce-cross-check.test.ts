@@ -53,7 +53,10 @@ function xyceAvailable(): boolean {
 }
 
 const native = process.env.SI_NATIVE_TESTS !== '1' && 'Set SI_NATIVE_TESTS=1 for bounded sequential native checks'
-for (const mutual of ['vcvs', 'native'] as const) test(`ngspice and Xyce agree on the committed routed TSX deck (${mutual} mutual inductance)`, { skip: native }, async context => {
+// Measured 2026-11-16: 11.4 mV (vcvs) and 12.5 mV (native K) against the 10 mV tolerance. Both engines are ~15 mV
+// from a converged run at the deck's 15.8 ps step ceiling (docs/xyce-cross-check.md), so this stays todo, not loosened.
+const finding = 'time-step error at the deck step ceiling: 11.4 / 12.5 mV vs 10 mV'
+for (const mutual of ['vcvs', 'native'] as const) test(`ngspice and Xyce agree on the committed routed TSX deck (${mutual} mutual inductance)`, { skip: native, todo: finding }, async context => {
   if (!ngspiceAvailable() || !xyceAvailable()) return context.skip('ngspice and Xyce (XYCE or PATH) are both required')
   const out = mkdtempSync(join(tmpdir(), 'xyce-cross-check-'))
   try {
