@@ -126,4 +126,61 @@ back to a row of the coverage table.
 
 ### Results
 
-Results are added here after the runs. They are not part of this commit.
+Measured on 2026-11-16. openEMS is v0.37.0-57-gfc00235 (CSXCAD v0.7.0-9-gfdff4b5), with 8 threads
+under the shared heavy-job lock. The ladder side is this branch's pipeline at #89 head 8378539, before
+the loss-model change in progress on #87. Its conductor loss (Wheeler skin, nine-pole Foster) is
+scaled by 10⁻⁶ in the comparison ladder, so the #87 change does not affect these numbers. Private-board
+geometry stays in `.cache/`. Only the aggregates below are published.
+
+**Tooling bug found and fixed first.** The first comparison ladder emitted zero-valued Foster
+stages (0 Ω in parallel with 0 H). ngspice `.ac` then gave |S11|² + |S21|² up to 1.5 for a lossless
+board, which is not passive. On the coupled DDR3 BA0 deck, the same zeros left the auxiliary
+multiport nodes singular, and ngspice spent 13 h in gmin stepping until it was killed. Conductor R
+and skin R are now scaled by 10⁻⁶ instead of zeroed. The unit test rejects zero-valued elements, and
+`compare.py` reports the passivity of both sides. After the fix the ladder's maximum
+|S11|² + |S21|² is 0.997. Every number below uses the fixed ladder.
+
+#### Synthetic via board (TSX, `tests/fixtures/openems-via-board.tsx`)
+
+40 mm of 0.3 mm microstrip: 20 mm on top over inner1, one through via (0.2 mm drill, 0.3 mm pad),
+then 20 mm on the bottom over inner2. A GND stitch via sits 1 mm away. The JLC 4-layer stack has a
+0.0994 mm prepreg and a 1.265 mm core. The mesh is 0.3/4 mm laterally at 425k cells, and 0.3/8 mm
+with the thirds rule and 10 z cells per gap at 657k cells. Each run takes 1.5–8 min.
+
+| Check (tolerance) | Stitch, w/4 mesh | Stitch, w/8 + thirds | No stitch, w/8 + thirds | Verdict |
+|---|---|---|---|---|
+| Z0, top run middle (±3 %) | 33.06 vs 34.77 Ω, −4.9 % | 33.47 vs 34.77 Ω, −3.8 % | 34.08 vs 34.76 Ω, −2.0 % | fail with the stitch, pass without |
+| Z0, bottom run middle (±3 %) | 33.77 vs 35.68 Ω, −5.4 % | 34.12 vs 35.68 Ω, −4.4 % | 37.52 vs 38.44 Ω, −2.4 % | fail with the stitch, pass without |
+| Delay (±2 %) | 268.3 vs 286.1 ps, −6.2 % | 267.8 vs 286.1 ps, −6.4 % | 270.4 vs 295.4 ps, −8.5 % | **fail** |
+| \|S21\| 0–3 GHz (±0.5 dB) | worst +0.34 dB | worst +0.41 dB | worst −0.58 dB (1.29 GHz) | pass, pass, fail |
+| \|S21\| 3–5 GHz (reported) | +0.36 dB | +0.41 dB | +1.24 dB | — |
+| TDR peak at the via (openEMS vs ladder) | 39.6 vs 48.0 Ω | 39.9 vs 48.0 Ω | 44.6 vs 56.4 Ω | — |
+
+**Where the delay difference is: the lumped via model (rows 1 and 4).** Ablating the via in the
+ladder separates line delay from via delay. These ablations are post-hoc diagnostics, not checks:
+
+| Ladder variant (stitch board) | Ladder delay | openEMS delay | Error |
+|---|---|---|---|
+| As built: barrel L 1.31 nH + return L 0.53 nH, C 0.52 pF | 286.1 ps | 267.8 ps | −6.4 % |
+| Barrel L only (return L removed) | 278.9 ps | 267.8 ps | −4.0 % |
+| No via at all | 250.7 ps | 267.8 ps | +6.8 % |
+
+With the stitch, the physical via adds about 17.1 ps (267.8 − 250.7), but the pipeline's lumped
+via adds 35.4 ps. Without the stitch, openEMS adds 19.7 ps and the pipeline 44.7 ps, because its
+10 mm no-stitch fallback raises the return L to 1.27 nH. The direction is right: removing the
+stitch makes the via slower and more inductive on both sides (openEMS +2.6 ps, TDR peak +4.7 Ω).
+The size is about 2× too large on delay, and the inductive TDR peak is 8–12 Ω too high. In row-1
+terms, √(LC) = √(1.84 nH · 0.52 pF) = 31 ps of lumped delay sits where the full-wave via shows
+about 17 ps. The L in the TI short-via formula and the return-loop L both overestimate a 1.5 mm
+through via whose stitch is 1 mm away.
+
+**Line Z0 (mesh and TDR resolution, not a coverage row).** The line markers are 6–10 mm from a port or the via, which is
+within one TDR rise (8 mm), so they carry some contamination. The same top run reads 33.47 Ω with
+the stitch and 34.08 Ω without it, at the same mesh, 1.8 % apart. Refining the mesh moved
+openEMS +1.2 % toward the pipeline. The remaining −2 to −4 % is within mesh plus contamination
+uncertainty, so it is **not** attributed to missing physics. Pipeline Z0 for this microstrip is
+not contradicted.
+
+openEMS's own passivity check gives a maximum |S11|² + |S21|² of 1.014 at 10 MHz, so its port
+normalisation carries about 0.7 % amplitude error at the bottom of the band.
+
