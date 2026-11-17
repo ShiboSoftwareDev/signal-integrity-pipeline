@@ -8,7 +8,7 @@ test('admission uses shared block lowering, retains warnings and rejects invalid
   const input = await routedProblem(context)
   if (!input) return
   const [block] = prepareBlocks(input.circuitJson, input.ibisSources, '2d', 1)
-  const single = prepareBlockById(input.circuitJson, input.ibisSources, block.block.simulation_signal_integrity_id, '2d', 1)
+  const single = prepareBlockById(input.circuitJson, input.ibisSources, block.block.simulation_pcb_transient_channel_simulation_id, '2d', 1)
   assert.deepEqual(single.settings, block.settings)
   assert.deepEqual(single.circuit, block.circuit)
   assert.deepEqual(single.warnings, block.warnings)

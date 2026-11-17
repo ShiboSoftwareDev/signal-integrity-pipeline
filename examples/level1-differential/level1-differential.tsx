@@ -28,7 +28,7 @@ export default () => (
     <copperpour connectsTo="net.GND" layer="bottom" unbroken />
 
     <simulation.pcbtransientchannelsimulation bitRate="250kbps">
-      <simulation.pcbchannel
+      <simulation.pcbdriverreceiverchannel
         name="BUS"
         driverRef={{ p: ".TX > .A", n: ".TX > .B" }}
         receiverRef={{ p: ".RX > .A", n: ".RX > .B" }}

@@ -1,7 +1,7 @@
 import type { CircuitJson, CopperScope, LaneMapping, SectionGeometry } from '../board'
 import type { CompiledBuffer, IbisSources } from '../buffers'
 import type { ExtractedRoutes, RouteMaterials, RouteReturn } from '../extraction'
-import type { SimulationModeling, SimulationPlan, VoltageProbePlan } from './types'
+import type { RunControls, SimulationModeling, SimulationPlan, VoltageProbePlan } from './types'
 
 export interface RoutedCompileOptions {
   riseSeconds: number
@@ -19,6 +19,7 @@ export interface RouteBindingsInput {
   scope: CopperScope
   mappings: LaneMapping[]
   modeling: SimulationModeling
+  controls: Record<string, RunControls>
   ibisSources: IbisSources
   options: RoutedCompileOptions
   artifactPrefix: string

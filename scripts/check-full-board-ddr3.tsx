@@ -11,7 +11,7 @@ if (!path || !process.env.IBIS_MODEL_DIR) throw new Error('Set SI_DDR3_BOARD and
 const bytes = await readFile(path)
 const circuit = await fullBoardDdr3(path)
 const sources = Object.fromEntries(await Promise.all(['sprm552c.ibs', 'W631GG6MB-12.ibs'].map(async file => [`models/${file}`, await readFile(`${process.env.IBIS_MODEL_DIR}/${file}`)] as const)))
-const signals = circuit.filter(record => record.type === 'simulation_signal')
+const signals = circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel')
 const models = circuit.filter(record => record.type === 'simulation_ibis_model')
 const rails = new Set<string>()
 for (const id of circuit.filter(record => record.type === 'source_net').filter(net => net.is_ground || net.is_power).map(net => net.source_net_id)
@@ -50,7 +50,7 @@ try {
   const [block] = prepareBlocks(circuit, sources)
   passed.push('prepareBlocks')
   const context = { progress: (): void => {} }
-  const admitted = (await admit.run({ phase: 'input', options: { circuitJson: block.circuit, modeling: block.settings, ibisSources: sources } }, context)).state
+  const admitted = (await admit.run({ phase: 'input', options: { circuitJson: block.circuit, controls: block.controls, modeling: block.settings, ibisSources: sources } }, context)).state
   passed.push('admit')
   const declared = (await declare.run(admitted, context)).state
   passed.push('declare')

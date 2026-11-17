@@ -12,6 +12,6 @@ export default () => <board width={20} height={12} layers={4} thickness={1.6} fa
     <smtpad portHints={['pin2']} pcbX={0} pcbY={-.3} width={.25} height={.25} shape="rect" />
   </footprint>} />
   <simulation.pcbtransientchannelsimulation name="RS485" bitRate={250e3} duration={48 / 250e3}>
-    <simulation.pcbchannel name="BUS" driverRef={{ p: '.TX > .A', n: '.TX > .B' }} receiverRef={{ p: '.RX > .A', n: '.RX > .B' }} />
+    <simulation.pcbdriverreceiverchannel name="BUS" driverRef={{ p: '.TX > .A', n: '.TX > .B' }} receiverRef={{ p: '.RX > .A', n: '.RX > .B' }} />
   </simulation.pcbtransientchannelsimulation>
 </board>

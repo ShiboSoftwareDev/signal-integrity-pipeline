@@ -6,11 +6,11 @@ export function signalResultFiles(records: CircuitJson, serialize: (value: unkno
   try {
     return { 'circuit-results.json': serialize(records) } }
   catch (error) {
-    if (!(error instanceof RangeError) || !records.some(record => record.type === 'simulation_signal_waveform')) throw error
+    if (!(error instanceof RangeError) || !records.some(record => record.type === 'simulation_signal_waveform_result')) throw error
     const files: FileMap = {}
     const parts: { file: string; indices: number[] }[] = []
     const retained = records.flatMap((record, index) => {
-      if (record.type !== 'simulation_signal_waveform') return [{ record, index }]
+      if (record.type !== 'simulation_signal_waveform_result') return [{ record, index }]
       const file = `circuit-results/waveform-${index}.json`
       files[file] = serialize([record])
       parts.push({ file, indices: [index] })

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { GraphicsObject } from 'graphics-debug'
-import { routeBoardDrawing, routeDisplayItems, routeFrame, routeMarks, routeStrip, routeStroke, routeView, type CircuitJson } from '../../src/board'
+import { routeBoardDrawing, routeDisplayItems, routeFrame, routeMarks, routeStrip, routeStroke, routeView, type SimulationPcbDriverReceiverChannel } from '../../src/board'
 import { routedCopper } from '../support/routed-fixture'
 import { routedVisualFixture, assertRouteVisual } from '../support/routed-visual-fixture'
 
@@ -30,8 +30,8 @@ test('a differential channel colours its two nets as two shades of one hue and c
   const { circuitJson, scope } = root.stageOutput('RouteSectionsSolver').value[0]
   const selected = new Set(circuitJson.flatMap((record) => (record.type === 'pcb_trace' && scope.selectedPcbTraceIds.includes(record.pcb_trace_id) ? [record.source_trace_id] : [])))
   const ports = circuitJson.flatMap((record) => (record.type === 'source_trace' && selected.has(record.source_trace_id) ? [record.connected_source_port_ids] : []))
-  const signal = { type: 'simulation_signal', simulation_signal_id: 'pair', simulation_signal_integrity_id: 'block', name: 'PAIR', driver: { p_source_port_id: ports[0][0], n_source_port_id: ports[1][0] }, receivers: [{ p_source_port_id: ports[0][1], n_source_port_id: ports[1][1] }], bit_rate_bps: 1e8, pattern: '01', seed: 1, offset_s: 0 }
-  const view = routeView([...circuitJson.filter((record) => record.type !== 'simulation_digital_stimulus'), signal] as CircuitJson, { ...scope })
+  const signal: SimulationPcbDriverReceiverChannel = { type: 'simulation_pcb_driver_receiver_channel', simulation_pcb_driver_receiver_channel_id: 'pair', simulation_pcb_transient_channel_simulation_id: 'block', name: 'PAIR', driver: { p_source_port_id: ports[0][0], n_source_port_id: ports[1][0] }, receivers: [{ p_source_port_id: ports[0][1], n_source_port_id: ports[1][1] }], bit_rate_bps: 1e8, pattern: '01', seed: 1, offset_ms: 0 }
+  const view = routeView([...circuitJson.filter((record) => record.type !== 'simulation_pcb_driver_receiver_channel'), signal], { ...scope })
   const [p, n] = [...new Set(view.sources.values())]
   assert.equal(p.hue, n.hue)
   assert.notEqual(p.lightness, n.lightness)

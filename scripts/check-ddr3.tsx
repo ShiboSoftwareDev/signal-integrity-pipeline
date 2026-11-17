@@ -11,7 +11,7 @@ import { ddr3Waveforms } from './inspect-ddr3-waveforms'
 
 // Real core, unchanged DDR3 TSX, and no RunSolver capability anywhere in this check.
 const circuit = await renderCoreSignals(<DDR3 />)
-assert.equal(circuit.filter(record => record.type === 'simulation_signal').length, 9)
+assert.equal(circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').length, 9)
 const directory = process.env.IBIS_MODEL_DIR ?? 'models'
 const bytes = await readFile(`${directory}/sprm552c.ibs`)
 const dram = await readFile(`${directory}/W631GG6MB-12.ibs`)
@@ -28,7 +28,7 @@ const summary = {
   positive_coupling_pairs: model.C.reduce((sum, row, i) => sum + row.filter((value, j) => j > i && value > 0).length, 0),
   diagonally_dominant_rows: margins.filter(value => value >= 0).length,
   minimum_diagonal_margin_f: Math.min(...margins),
-  core_signals: circuit.filter(record => record.type === 'simulation_signal').length,
+  core_signals: circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').length,
   physical_records: Object.fromEntries(['pcb_trace', 'pcb_via', 'pcb_copper_pour'].map(type => [type, circuit.filter(record => record.type === type).length])),
 }
 
@@ -40,7 +40,7 @@ let firstError: string | null = null
 const warnings = [...block.warnings]
 let switching: object[] = []
 try {
-  const admitted = (await admit.run({ phase: 'input', options: { circuitJson: block.circuit, modeling: block.settings, ibisSources: sources } }, context)).state
+  const admitted = (await admit.run({ phase: 'input', options: { circuitJson: block.circuit, controls: block.controls, modeling: block.settings, ibisSources: sources } }, context)).state
   passed.push('admit')
   nextStage = 'declare'
   const declared = (await declare.run(admitted, context)).state

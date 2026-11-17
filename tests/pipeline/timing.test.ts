@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { recordingTime, compareNames } from '../../src/pipeline/timing'
-import type { SimulationSignal } from '../../src/board'
+import type { SimulationPcbDriverReceiverChannel } from '../../src/board'
 
 /** Minimal resolved intent for pure timing arithmetic; no hand-authored electrical circuit. */
-const signal = (pattern: string, rate: number, offset: number = 0): SimulationSignal => ({ type: 'simulation_signal', simulation_signal_id: 's', simulation_signal_integrity_id: 'b', name: 'DATA',
-  driver: { source_port_id: 'tx' }, receivers: [{ source_port_id: 'rx' }], pattern, seed: 127, bit_rate_bps: rate, offset_s: offset })
+const signal = (pattern: string, rate: number, offset: number = 0): SimulationPcbDriverReceiverChannel => ({ type: 'simulation_pcb_driver_receiver_channel', simulation_pcb_driver_receiver_channel_id: 's', simulation_pcb_transient_channel_simulation_id: 'b', name: 'DATA',
+  driver: { source_port_id: 'tx' }, receivers: [{ source_port_id: 'rx' }], pattern, seed: 127, bit_rate_bps: rate, offset_ms: offset * 1000 })
 
 test('automatic capture is startup plus 128 slowest UI, independent of pattern period', () => {
   assert.deepEqual(recordingTime([signal('clock', 1)]), { duration: 144, gate: 16 })

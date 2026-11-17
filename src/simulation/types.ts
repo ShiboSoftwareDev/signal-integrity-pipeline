@@ -2,7 +2,7 @@
 // experiments/<id>/experiment.json and PipelineResult.experiments[].plan: do not reorder or rename.
 import type { IbisConversionMetadata } from '@tscircuit/ibis-to-spice'
 import type { SafeId } from '../kernel'
-import type { CircuitJson, PortSelector, SimulationExperiment, SimulationIbisModel, SimulationIbisPinState, SimulationDigitalStimulus } from '../board'
+import type { CircuitJson, PortSelector, SimulationExperiment, SimulationIbisModel } from '../board'
 import type { WaveformRows } from '../observation'
 
 /** simulation's slice of the flat public `Modeling`. (`channelReference` is shared with board's slice.) */
@@ -27,7 +27,15 @@ export interface VoltageProbePlan {
   signalNode: string
   referenceNode: string
 }
-export interface SimulationPlan {
+/** Run controls lowered from channel declarations for the IBIS converter. */
+export interface RunControls {
+  states: { source_port_id: string; is_output: boolean; is_output_enabled?: boolean }[]
+  stimuli: {
+    name: string; source_port_id: string; bit_duration_ms: number; start_time_ms: number; initial_state: 0 | 1; inverted?: boolean
+    transmission_pattern: { transmission_type: 'bits'; bits: string; repeat: boolean }
+  }[]
+}
+export interface SimulationPlan extends RunControls {
   simulationExperimentId: string
   name: string
   subcircuitId: string | null
@@ -35,8 +43,6 @@ export interface SimulationPlan {
   startTimeSeconds: number
   maxStepSeconds: number
   experiment: SimulationExperiment
-  states: SimulationIbisPinState[]
-  stimuli: (SimulationDigitalStimulus & { transmission_pattern: { bits: string } })[]
   probes: VoltageProbePlan[]
   models: PipelineIbisModel[]
 }

@@ -28,7 +28,7 @@ function Four(): React.JSX.Element {
     {/* Keep the ideal-supply contacts and copper beyond the 1 mm coupling horizon. */}
     <Reference powerStartMm={2.4} />
     <simulation.pcbtransientchannelsimulation name="FOUR" bitRate={20e6} duration={48 / 20e6}>
-      {[0, 1, 2, 3].map(i => <simulation.pcbchannel key={i} name={`D${i}`} driverRef={`.TX${i} > .Y`} receiverRef={`.RX${i} > .A`} />)}
+      {[0, 1, 2, 3].map(i => <simulation.pcbdriverreceiverchannel key={i} name={`D${i}`} driverRef={`.TX${i} > .Y`} receiverRef={`.RX${i} > .A`} />)}
     </simulation.pcbtransientchannelsimulation>
   </board>
 }
@@ -37,8 +37,8 @@ test('Real core renders source records and core-owned stackup for unit boards', 
   for (const Board of [Single, Differential, Four]) {
     const records = await renderSignals(<Board />)
     assert.equal(records.filter(r => r.type === 'pcb_stackup').length, 1)
-    assert.ok(records.some(r => r.type === 'simulation_signal'))
-    assert.ok(!records.some(r => ['simulation_experiment', 'simulation_voltage_probe', 'simulation_digital_stimulus'].includes(r.type)))
+    assert.ok(records.some(r => r.type === 'simulation_pcb_driver_receiver_channel'))
+    assert.ok(!records.some(r => ['simulation_experiment', 'simulation_voltage_probe'].includes(r.type)))
   }
 })
 
@@ -46,7 +46,7 @@ test('four-conductor derivation and geometry are invariant under signal record o
   const circuit = await renderSignals(<Four />)
   const ibis = await sources()
   const a = prepareBlocks(circuit, ibis)[0]
-  const b = prepareBlocks([...circuit.filter(r => r.type !== 'simulation_signal'), ...circuit.filter(r => r.type === 'simulation_signal').reverse()], ibis)[0]
+  const b = prepareBlocks([...circuit.filter(r => r.type !== 'simulation_pcb_driver_receiver_channel'), ...circuit.filter(r => r.type === 'simulation_pcb_driver_receiver_channel').reverse()], ibis)[0]
   assert.equal(a.settings.lanes.length, 4)
   assert.deepEqual(a.settings, b.settings)
   assert.deepEqual(geometryFromCircuitJson(a.circuit, a.settings), geometryFromCircuitJson(b.circuit, b.settings))
@@ -68,8 +68,8 @@ test('RS485 differential identity and the placed termination are derived from re
 
 test('signal packages and vendor reference evidence remain present; disabled drivers reject output-only buffers', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Single />)
-  const signal = circuit.find(r => r.type === 'simulation_signal')!
-  if (signal.type !== 'simulation_signal') throw new Error('missing signal')
+  const signal = circuit.find(r => r.type === 'simulation_pcb_driver_receiver_channel')!
+  if (signal.type !== 'simulation_pcb_driver_receiver_channel') throw new Error('missing signal')
   signal.driver_disabled = true
   const ibis = await sources()
   assert.throws(() => prepareBlocks(circuit, ibis), /has no disabled state/)
@@ -77,7 +77,7 @@ test('signal packages and vendor reference evidence remain present; disabled dri
   signal.pattern = '0'
   const prepared = prepareBlocks(circuit, ibis)[0]
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings)
+  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls)
   const admitted = admitBuffers(declarations.models, ibis, prepared.settings, rootScope('buffers'))
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)[0]
   for (const model of compiled) {

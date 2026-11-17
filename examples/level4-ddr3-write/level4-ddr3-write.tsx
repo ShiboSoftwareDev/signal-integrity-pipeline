@@ -134,7 +134,7 @@ export default () => (
     <copperpour connectsTo="net.VDDQ" layer="inner5" unbroken />
 
     <simulation.pcbtransientchannelsimulation name="WRITE" bitRate="800Mbps">
-      <simulation.pcbchannel
+      <simulation.pcbdriverreceiverchannel
         name="DQS"
         driverRef={{
           pin: { p: ".CPU > .DDR_DQS0", n: ".CPU > .DDR_DQSN0" },
@@ -148,7 +148,7 @@ export default () => (
         offset="0.5UI"
       />
       {cpuDq.map((_, i) => (
-        <simulation.pcbchannel
+        <simulation.pcbdriverreceiverchannel
           key={String(i)}
           name={`DQ${i}`}
           driverRef={{ pin: `.CPU > .DDR_D${i}`, model: "Model_257" }}

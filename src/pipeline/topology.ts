@@ -1,4 +1,4 @@
-import { connectedSourceIds, type CircuitJson } from '../board'
+import { connectedSourceIds, type CircuitJson, type SimulationPcbDriverReceiverChannel } from '../board'
 
 /** Copper reachable through two-terminal passives, excluding power and ground branches. */
 export function signalTopology(circuit: CircuitJson, seed: string, rails: Set<string>, stops: Set<string> = new Set()): Set<string> {
@@ -21,7 +21,7 @@ export function signalTopology(circuit: CircuitJson, seed: string, rails: Set<st
 }
 
 /** Verify physical connectivity through passives and reject branched routed graphs independently of source grouping. */
-export function validateSignalGraph(circuit: CircuitJson, signals: import('../board').SimulationSignal[], rails: Set<string>, allowUnroutedTraces: boolean): void {
+export function validateSignalGraph(circuit: CircuitJson, signals: SimulationPcbDriverReceiverChannel[], rails: Set<string>, allowUnroutedTraces: boolean): void {
   const selected = new Set(signals.flatMap(signal => ('source_port_id' in signal.driver ? [signal.driver.source_port_id] : [signal.driver.p_source_port_id, signal.driver.n_source_port_id]).flatMap(port => [...signalTopology(circuit, port, rails)])))
   const sourceTraces = new Set(circuit.filter(r => r.type === 'source_trace').filter(trace => trace.connected_source_port_ids.some(port => selected.has(port)) && !trace.connected_source_port_ids.some(port => rails.has(port))).map(trace => trace.source_trace_id))
   const routes = circuit.filter(r => r.type === 'pcb_trace').filter(r => sourceTraces.has(r.source_trace_id ?? ''))

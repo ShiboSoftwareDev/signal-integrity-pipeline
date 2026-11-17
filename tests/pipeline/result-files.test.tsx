@@ -8,7 +8,7 @@ import type { CircuitJson } from '../../src/board'
 
 test('oversized TSX result artifacts preserve every waveform sample, record and position across indexed parts', async () => {
   const records: CircuitJson = await renderSignals(<board width="10mm" height="10mm"><resistor name="R1" resistance="1k" footprint="0402" /></board>)
-  records.splice(1, 0, { type: 'simulation_signal_waveform', simulation_signal_waveform_id: 'wave', simulation_signal_id: 'signal', source_port_id: 'port', timestamps_s: [0, 1e-9, 2e-9], voltage_levels: [0, 3.3, -.1] })
+  records.splice(1, 0, { type: 'simulation_signal_waveform_result', simulation_signal_waveform_result_id: 'wave', simulation_pcb_driver_receiver_channel_id: 'signal', source_port_id: 'port', timestamps_ms: [0, 1e-6, 2e-6], voltage_levels: [0, 3.3, -.1] })
   /** Exercise the actual string-limit fallback without allocating a half-gigabyte test string. */
   const limited = (value: unknown): string => {
     if (value === records) throw new RangeError('Invalid string length')

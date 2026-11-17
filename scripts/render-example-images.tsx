@@ -12,7 +12,7 @@ import Two from '../examples/level2-two-channels/level2-two-channels'
 import Three from '../examples/level3-three-channels/level3-three-channels'
 import DDR3 from '../examples/level4-ddr3-write/level4-ddr3-write'
 import type { CircuitJson } from '../src/board'
-import type { SimulationSignalWaveform } from 'circuit-json'
+import type { SimulationSignalWaveformResult } from 'circuit-json'
 
 const levels = [
   { name: 'level1-single-ended', Board: Single, runs: ['single'] },
@@ -30,7 +30,7 @@ const escape = (value: unknown): string => String(value).replaceAll('&', '&amp;'
 /** Compact engineering labels, without changing the data. */
 const number = (value: number): string => Number(value.toPrecision(4)).toString()
 /** Read a full accepted waveform, archived losslessly by the native runner. */
-async function waveform(directory: string, id: string): Promise<SimulationSignalWaveform> {
+async function waveform(directory: string, id: string): Promise<SimulationSignalWaveformResult> {
   const file = `${directory}/waveforms/${id}.json`
   try {
     return JSON.parse(await readFile(file, 'utf8')) }
@@ -125,7 +125,7 @@ for (const { name, Board, runs } of levels) {
   const directory = `examples/${name}`
   await mkdir(directory, { recursive: true })
   const summaries: any[] = []
-  const traces: { directory: string; block: string; channel: string; record: SimulationSignalWaveform; end: string }[] = []
+  const traces: { directory: string; block: string; channel: string; record: SimulationSignalWaveformResult; end: string }[] = []
   let totalBytes = 0
   let expectedBoard: string | undefined
   for (const run of runs) {
@@ -141,7 +141,7 @@ for (const { name, Board, runs } of levels) {
     if (summary.example_sha256 !== sourceHash) throw new Error(`${name}: evidence does not match the current TSX`)
     const extraction: unknown[] = []
     for (const block of summary.blocks ?? []) {
-      const directory = `${path}/blocks/${block.simulation_signal_integrity_id}`
+      const directory = `${path}/blocks/${block.simulation_pcb_transient_channel_simulation_id}`
       for (const stage of await readdir(directory)) if (/^stage-\d+$/.test(stage)) {
         const matrix = JSON.parse(await readFile(`${directory}/${stage}/extraction.json`, 'utf8'))
         extraction.push({ stage: matrix.stage, frequency_hz: matrix.frequencyHz, R_mesh_delta: matrix.checks.convergence.R, L_mesh_delta: matrix.checks.convergence.L, C_auto_residual: matrix.checks.capConvergence, signal_C_reciprocity: matrix.checks.C.reciprocityResidual })
@@ -152,24 +152,24 @@ for (const { name, Board, runs } of levels) {
     evidence.push(clean)
     if (summary.status !== 'verified_native') continue
     for (const block of summary.blocks) for (const result of block.results) {
-      if (result.type !== 'simulation_signal_waveform') continue
-      const record = await waveform(path, result.simulation_signal_waveform_id)
+      if (result.type !== 'simulation_signal_waveform_result') continue
+      const record = await waveform(path, result.simulation_signal_waveform_result_id)
       result.full_resolution_sha256 = createHash('sha256').update(JSON.stringify(record)).digest('hex')
-      const fullPath = `${path}/waveforms/${result.simulation_signal_waveform_id}.json`
+      const fullPath = `${path}/waveforms/${result.simulation_signal_waveform_result_id}.json`
       result.full_resolution_evidence = await access(`${fullPath}.gz`).then(() => `${fullPath}.gz`, () => fullPath)
-      const source = input.find(source => source.type === 'simulation_signal' && source.simulation_signal_id === record.simulation_signal_id)
-      const channel = source?.type === 'simulation_signal' ? source.name : record.simulation_signal_id
-      if (source?.type !== 'simulation_signal') throw new Error('Missing waveform signal')
+      const source = input.find(source => source.type === 'simulation_pcb_driver_receiver_channel' && source.simulation_pcb_driver_receiver_channel_id === record.simulation_pcb_driver_receiver_channel_id)
+      const channel = source?.type === 'simulation_pcb_driver_receiver_channel' ? source.name : record.simulation_pcb_driver_receiver_channel_id
+      if (source?.type !== 'simulation_pcb_driver_receiver_channel') throw new Error('Missing waveform signal')
       const end = record.source_port_id === ('source_port_id' in source.driver ? source.driver.source_port_id : source.driver.p_source_port_id) ? 'near' : 'far'
       let fullBytes = 0
-      for (let i = 0; i < record.timestamps_s.length; i++) fullBytes += `${block.name},${channel},${end},${record.source_port_id},${record.timestamps_s[i]},${record.voltage_levels[i]}${record.idle_voltage_v === undefined ? '' : `,${record.idle_voltage_v}`}\n`.length
+      for (let i = 0; i < record.timestamps_ms.length; i++) fullBytes += `${block.name},${channel},${end},${record.source_port_id},${record.timestamps_ms[i] / 1000},${record.voltage_levels[i]}${record.idle_voltage_v === undefined ? '' : `,${record.idle_voltage_v}`}\n`.length
       totalBytes += fullBytes
       traces.push({ directory: path, block: block.name, channel, record, end })
     }
   }
   const hasQuiet = traces.some(trace => trace.record.idle_voltage_v !== undefined)
   const csvHeader = `block,channel,end,pin,time_s,voltage_v${hasQuiet ? ',idle_voltage_v' : ''}\n`
-  totalBytes += csvHeader.length + (hasQuiet ? traces.filter(trace => trace.record.idle_voltage_v === undefined).reduce((sum, trace) => sum + trace.record.timestamps_s.length, 0) : 0)
+  totalBytes += csvHeader.length + (hasQuiet ? traces.filter(trace => trace.record.idle_voltage_v === undefined).reduce((sum, trace) => sum + trace.record.timestamps_ms.length, 0) : 0)
   const decimated = totalBytes > 10_000_000
   const exportFile = await open(`${directory}/simoutput.csv`, 'w')
   await exportFile.write(csvHeader)
@@ -180,7 +180,7 @@ for (const { name, Board, runs } of levels) {
     const indices = selectedIndices(record.voltage_levels, stride)
     let buffer = ''
     for (const i of indices) {
-      buffer += `${trace.block},${trace.channel},${end},${record.source_port_id},${record.timestamps_s[i]},${record.voltage_levels[i]}${hasQuiet ? `,${record.idle_voltage_v ?? ''}` : ''}\n`
+      buffer += `${trace.block},${trace.channel},${end},${record.source_port_id},${record.timestamps_ms[i] / 1000},${record.voltage_levels[i]}${hasQuiet ? `,${record.idle_voltage_v ?? ''}` : ''}\n`
       if (buffer.length > 100000) {
         await exportFile.write(buffer)
         buffer = ''
@@ -225,7 +225,7 @@ for (const { name, Board, runs } of levels) {
       continue
     }
     for (const block of summary.blocks) {
-      const label = block.name.startsWith('simulation_signal_integrity_') ? 'Capture' : block.name
+      const label = block.name.startsWith('simulation_pcb_transient_channel_simulation_') ? 'Capture' : block.name
       const rows = csvRows.filter(row => row.block === block.name)
       const switching = rows.filter(row => row.idle === undefined)
       if (switching.length) {
@@ -251,7 +251,7 @@ for (const { name, Board, runs } of levels) {
     if (summary.status !== 'verified_native') return `${summary.run_directory.split('/').at(-1)}: stopped after ${number(summary.seconds)} s, ${summary.native_requests.length} solver calls: \`${summary.error}\`.`
     return summary.blocks.map((block: any) => {
       const checks = Object.entries(summary.convergence).filter(([path]) => path.endsWith('numerical-convergence.json')).flatMap(([, value]: any) => value.checks.slice(-2).flatMap((check: any) => check.probes))
-      return `${block.name}: ${number(block.duration_s * 1e6)} µs accepted; wall ${number(summary.seconds)} s (${number(summary.native_requests.reduce((sum: number, call: any) => sum + (call.reused_from ? 0 : call.wall_seconds), 0))} s fresh native calls); convergence deltas RMS ≤ ${number(Math.max(...checks.map((check: any) => check.rms_v)))} V, signed extrema ≤ ${number(Math.max(...checks.map((check: any) => check.peak_change_v)))} V.`
+      return `${block.name}: ${number(block.duration_ms * 1000)} µs accepted; wall ${number(summary.seconds)} s (${number(summary.native_requests.reduce((sum: number, call: any) => sum + (call.reused_from ? 0 : call.wall_seconds), 0))} s fresh native calls); convergence deltas RMS ≤ ${number(Math.max(...checks.map((check: any) => check.rms_v)))} V, signed extrema ≤ ${number(Math.max(...checks.map((check: any) => check.peak_change_v)))} V.`
     }).join(' ')
   }).join(' ')
   const extraction = [...new Set(summaries.flatMap(summary => summary.extraction.map((check: any) => `R/L mesh deltas ${number(check.R_mesh_delta * 100)}%/${number(check.L_mesh_delta * 100)}%, C auto residual ${number(check.C_auto_residual * 100)}%, signal-block reciprocity ${number(check.signal_C_reciprocity * 100)}%.`)))].join(' ')
@@ -261,4 +261,4 @@ for (const { name, Board, runs } of levels) {
   console.log(`${name}: ${exported} CSV rows, ${1600} × ${y + 50}`)
 }
 await writeFile('tests/evidence/signal-levels/rfc-boards.json', JSON.stringify({ source_identity_note: 'Acquisition checkout heads record Git HEAD while working-tree edits were present; exact native requests and result bytes are validated against final source in request-identity.json', rfc_head: '9adc0fe61105554abce7ff80056786d6d287818e', native_timeout_ms: 1200000, OMP_NUM_THREADS: 1, maximum_native_processes: 1, acceptance: { R_L_mesh: .05, C_auto: .02, signal_C_reciprocity: .025, transient: 'Independent timestep and section checks; per-probe time-weighted RMS and signed extrema, 1% + 1 mV' }, outputs, cases: evidence }, null, 2) + '\n')
-await writeFile('examples/README.md', `# Native transient channel examples\n\nWith the built sibling overlays and local vendor files, run \`OMP_NUM_THREADS=1 IBIS_MODEL_DIR=models SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js" TSX_TSCONFIG_PATH=examples/tsconfig.json NGSPICE_BIN=/opt/homebrew/bin/ngspice node --max-old-space-size=6000 --import tsx scripts/render-example-images.tsx\` to regenerate every PNG and CSV from the full accepted evidence in \`${root}\`. To recreate that evidence first, use the same environment with \`scripts/run-signal-levels.tsx\`; every case/block runs sequentially, each process has a 1200000 ms bound, and DDR3 must stop before native execution. Exact completed native requests can be reused with \`SI_EXTRACTION_CACHE=<directories separated by colons> SI_REPLAY_COMPLETE_NATIVE=1 SI_REQUIRE_COMPLETE_CACHE=1\`. PNG lower panels plot the exported CSV in actual time and volts.\n\n${paragraphs.join('\n\n')}\n`)
+await writeFile('examples/README.md', `# Native transient channel examples\n\nWith the built core module and local vendor files, run \`OMP_NUM_THREADS=1 IBIS_MODEL_DIR=models SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js" TSX_TSCONFIG_PATH=examples/tsconfig.json NGSPICE_BIN=/opt/homebrew/bin/ngspice node --max-old-space-size=6000 --import tsx scripts/render-example-images.tsx\` to regenerate every PNG and CSV from the full accepted evidence in \`${root}\`. To recreate that evidence first, use the same environment with \`scripts/run-signal-levels.tsx\`; every case/block runs sequentially, each process has a 1200000 ms bound, and DDR3 must stop before native execution. Exact completed native requests can be reused with \`SI_EXTRACTION_CACHE=<directories separated by colons> SI_REPLAY_COMPLETE_NATIVE=1 SI_REQUIRE_COMPLETE_CACHE=1\`. PNG lower panels plot the exported CSV in actual time and volts.\n\n${paragraphs.join('\n\n')}\n`)

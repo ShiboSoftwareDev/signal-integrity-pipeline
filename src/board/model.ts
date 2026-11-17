@@ -24,7 +24,7 @@ export function circuitArtifact(board: Board, scope: ArtifactScope): Artifact {
   return scope.child('inputs').json('circuit.json', board.circuitJson)
 }
 
-/** Internal lowering carries private states/stimuli and a transient plan, after public admission in runPipeline. */
+/** Internal lowering runs after public record admission in runPipeline. */
 export function preparedBoard(circuitJson: CircuitJson): Board {
   return { circuitJson } as Board
 }

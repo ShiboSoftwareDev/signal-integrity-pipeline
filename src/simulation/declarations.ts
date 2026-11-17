@@ -1,11 +1,10 @@
-// Was src/declarations.ts (circuitNodes, generalDeclarations, modelRunDefinition). Logic and messages unchanged.
 import { transmittedBits } from './stimulus'
 import { fail } from './diagnostics'
 import { subcircuitTree, selectPort } from '../board'
 import type { CircuitJson, Geometry } from '../board'
 import type { IbisModelDefinition, IbisRunConfig, IbisReferencePorts } from '@tscircuit/ibis-to-spice'
 import type { ModelRunDefinition } from '../buffers'
-import type { CircuitNodes, Declarations, PipelineIbisModel, SimulationModeling, SimulationPlan } from './types'
+import type { CircuitNodes, Declarations, PipelineIbisModel, RunControls, SimulationModeling, SimulationPlan } from './types'
 
 /** Converts a declared millisecond time to seconds, failing unless it is finite and nonnegative (or positive). */
 const milliseconds=(value: number | undefined,label: string,{positive=false}: {positive?: boolean}={}): number=>{
@@ -110,10 +109,9 @@ export function circuitNodes(circuit: CircuitJson,geometry: Pick<Geometry,'mappi
 }
 
 /**
- * Reads the simulation_* records into one validated plan per pcb_spice transient experiment, with timing,
- * states, stimuli, probes. Every reference is checked here, before any solver runs.
+ * Combines experiment timing and probes with the lowered IBIS run controls. Every reference is checked here, before any solver runs.
  */
-export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry,'mappings'>,modeling: SimulationModeling): Declarations {
+export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry,'mappings'>,modeling: SimulationModeling,controls: Record<string, RunControls>): Declarations {
   for(const type of ['simulation_experiment','simulation_ibis_model','simulation_voltage_probe','source_port','source_net','source_component']) {
     const seen=new Set<string>()
     for(const record of circuit.filter(e=>e.type===type)) {
@@ -156,7 +154,6 @@ export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry
     for(const id of Object.values(model.ibis_pin_name_to_source_port_id??{})) if(!ports.has(id)||ports.get(id)?.source_component_id!==sourceComponent.source_component_id) fail('ibis_mapping',`${sourceComponent.name}: physical pin mapping points outside its chip`)
   }
   const declaredExperiments=circuit.filter(e=>e.type==='simulation_experiment')
-  const declaredExperimentIds=new Set(declaredExperiments.map(experiment=>experiment.simulation_experiment_id))
   const experiments=declaredExperiments.filter(experiment=>experiment.spice_engine==='pcb_spice')
   if(!experiments.length) fail('simulation_experiment','A transient experiment with spiceEngine=pcb_spice is required')
   const pcbExperimentIds=new Set(experiments.map(experiment=>experiment.simulation_experiment_id))
@@ -180,8 +177,8 @@ export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry
     const startTimeSeconds=milliseconds(experiment.start_time_ms??0,`${id} start_time_ms`)
     const maxStepSeconds=milliseconds(experiment.time_per_step,`${id} time_per_step`,{positive:true})
     if(startTimeSeconds>=durationSeconds||maxStepSeconds>=durationSeconds-startTimeSeconds) fail('simulation_timing',`${experiment.name}: recording must have positive duration and a smaller maximum timestep`)
-    const states=circuit.filter(e=>e.type==='simulation_ibis_pin_state').filter(e=>e.simulation_experiment_id===id)
-    const stimuli=circuit.filter(e=>e.type==='simulation_digital_stimulus').filter(e=>e.simulation_experiment_id===id).map(stimulus=>({...stimulus,transmission_pattern:{...stimulus.transmission_pattern,bits:transmittedBits(stimulus.transmission_pattern?.bits)}}))
+    const {states,stimuli:controlsForRun}=Object.hasOwn(controls,id)?controls[id]:{states:[],stimuli:[]}
+    const stimuli=controlsForRun.map(stimulus=>({...stimulus,transmission_pattern:{...stimulus.transmission_pattern,bits:transmittedBits(stimulus.transmission_pattern?.bits)}}))
     const stateIds=new Set<string>()
     const stimulusIds=new Set<string>()
     for(const state of states) {
@@ -221,7 +218,6 @@ export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry
 
     return {simulationExperimentId:id,name:experiment.name,subcircuitId:scope,durationSeconds,startTimeSeconds,maxStepSeconds,experiment,states,stimuli,probes,models:scopedModels}
   })
-  for(const record of circuit.filter(e=>e.type==='simulation_digital_stimulus'||e.type==='simulation_ibis_pin_state')) if(!declaredExperimentIds.has(record.simulation_experiment_id)) fail('simulation_reference',`${'name' in record?record.name:record.type}: unknown transient experiment`)
   const usedModelIds=new Set(plans.flatMap(plan=>plan.models.map(model=>model.pipelineId)))
   return {models:models.filter(model=>usedModelIds.has(model.pipelineId)),nodes,plans,ports}
 }

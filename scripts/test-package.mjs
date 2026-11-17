@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {mkdtemp,readFile,writeFile,mkdir,rm,access,copyFile} from 'node:fs/promises'
+import {mkdtemp,readFile,writeFile,mkdir,rm,access} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -32,10 +32,6 @@ try {
   // Hosts supply circuit-json, as tscircuit does for core and the other converters.
   const circuitJsonVersion=JSON.parse(await readFile(join(root,'package.json'),'utf8')).devDependencies['circuit-json']
   await run('npm',['install','--ignore-scripts','--legacy-peer-deps','--no-audit','--no-fund',`circuit-json@${circuitJsonVersion}`],consumer)
-  // Until circuit-json#983 is released, exercise the exact locally built peer schemas.
-  if(process.env.SI_LOCAL_CIRCUIT_JSON_DIST){
-    for(const file of ['index.mjs','index.d.mts'])await copyFile(join(process.env.SI_LOCAL_CIRCUIT_JSON_DIST,file),join(consumer,'node_modules/circuit-json/dist',file))
-  }
   const manifest=JSON.parse(await readFile(join(installed,'package.json'),'utf8'))
   assert.equal(manifest.name,'@tscircuit/signal-integrity-pipeline')
   assert.equal(manifest.main,'./dist/index.js')
@@ -46,9 +42,9 @@ try {
   const input={circuitJson:[],ibisSources:{}}
   if(process.env.IBIS_MODEL_DIR){
     const {renderSignals}=await import('../tests/support/signal-render.tsx')
-    const {default:Single}=await import('../examples/level1-single-ended/level1-single-ended.tsx')
+    const {default:Single}=await import('../tests/support/unit-single-ended.tsx')
     input.circuitJson=(await renderSignals(React.createElement(Single))).filter(record=>record.type!=='pcb_trace')
-    for(const record of input.circuitJson)if(record.type==='simulation_signal_integrity')record.allow_unrouted_traces=true
+    for(const record of input.circuitJson)if(record.type==='simulation_pcb_transient_channel_simulation')record.allow_unrouted_traces=true
     input.ibisSources['models/sn74lvc1g04.ibs']=await readFile(join(process.env.IBIS_MODEL_DIR,'sn74lvc1g04.ibs'),'utf8')
   }
   await writeFile(join(consumer,'input.json'),JSON.stringify(input))
@@ -64,7 +60,7 @@ import {createNativeSolver,loadIbisSources,writePipelineOutput} from '@tscircuit
 import {fixtureSolver} from './solver.mjs';
 const input=JSON.parse(readFileSync('input.json','utf8'));
 await assert.rejects(runPipeline({...input,modeling:{},runSolver:fixtureSolver}),{code:'signal_integrity_input'});
-if(input.circuitJson.length){const result=await runPipeline({...input,runSolver:fixtureSolver});assert.equal(result.blocks.length,1);assert.ok(result.blocks[0].results.some(r=>r.type==='simulation_signal_waveform'));assert.ok(generateReport(result)['results.html']);}
+if(input.circuitJson.length){const result=await runPipeline({...input,runSolver:fixtureSolver});assert.equal(result.blocks.length,1);assert.ok(result.blocks[0].results.some(r=>r.type==='simulation_signal_waveform_result'));assert.ok(generateReport(result)['results.html']);}
 else assert.deepEqual((await runPipeline({...input,runSolver:fixtureSolver})).blocks,[]);
 assert.equal(typeof createNativeSolver,'function');assert.equal(typeof loadIbisSources,'function');assert.equal(typeof writePipelineOutput,'function');`
   await writeFile(join(consumer,'smoke.mjs'),smoke)
@@ -83,7 +79,11 @@ const solver=createNativeSolver();const request:SolverRequest={solver:'ngspice',
 const circuitJson:CircuitJson=[{type:'pcb_quote_estimate',pcb_quote_estimate_id:'quote',pcb_board_id:'board',supplier_name:'test supplier',currency:'USD',quantity:1,estimated_at:'2026-11-02T00:00:00Z',is_manufacturing_cost_complete:false,is_landed_cost_complete:false}];
 const simulate=async(circuitJson:CircuitJson)=>runPipeline({circuitJson,ibisSources:await loadIbisSources({circuitJson,baseDir:'.'}),runSolver:solver});
 void execute;void request;void circuitJson;void simulate;`)
-  await run(process.execPath,[join(root,'node_modules/typescript/bin/tsc'),'--noEmit','--strict','--skipLibCheck','false','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2023','types.mts'],consumer)
+  await writeFile(join(consumer,'tsconfig.json'),JSON.stringify({
+    compilerOptions:{noEmit:true,strict:true,types:[],module:'NodeNext',moduleResolution:'NodeNext',target:'ES2023'},
+    files:['types.mts'],
+  }))
+  await run(process.execPath,[join(root,'node_modules/typescript/bin/tsc')],consumer)
   console.log('Packed NodeNext declarations: passed')
   const bun=process.env.BUN??'bun'
   try {

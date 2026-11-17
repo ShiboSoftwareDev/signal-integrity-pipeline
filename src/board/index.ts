@@ -8,7 +8,7 @@
  * Imports: kernel. (Was: schema.ts, circuit-schema.mjs, stackup.ts, subcircuit-scope.ts,
  * geometry.ts minus decks, copper.ts minus meshing/decks, stage-returns.ts.)
  */
-export type { CircuitJson, SimulationExperiment, SimulationIbisModel, SimulationIbisPinState, SimulationDigitalStimulus } from './schema'
+export type { CircuitJson, SimulationExperiment, SimulationIbisModel } from './schema'
 export { parseRecord, recordSchema, validateCircuitRecords } from './schema'
 export { type Board, admitBoard, preparedBoard, circuitArtifact } from './model'
 export { type BoardStackup, type CopperLayer, type DielectricLayer, stackupFromCircuitJson, defaultCopperConductivitySm } from './stackup'
@@ -24,7 +24,7 @@ export { selectPort, resolveRouteVias } from './geometry/ports'
 export { polygonContains, ringArea, closeRing } from './geometry/polygon'
 export { validateModeling, geometryFromCircuitJson, channelGeometry } from './geometry'
 
-export type { SimulationSignalIntegrity, SimulationSignal, SignalEndpoint, SignalResult } from './signals'
+export type { SimulationPcbTransientChannelSimulation, SimulationPcbDriverReceiverChannel, SignalEndpoint, SignalResult } from './signals'
 export { isQuiet } from './signals'
 export { segmentRoutes, routePosition, routeContactFrame, routeReferences, type SectionGeometry, type RouteWire, type RouteSlice, type RouteReference, type RouteXY } from './route-sections'
 

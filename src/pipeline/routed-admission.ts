@@ -31,7 +31,7 @@ export class RoutedAdmissionSolver extends BaseSolver {
   override _step(): void {
     if (!this.ids) {
       validateCircuitRecords(this.input.circuitJson)
-      this.ids = signalBlocks(this.input.circuitJson).map(block => block.simulation_signal_integrity_id)
+      this.ids = signalBlocks(this.input.circuitJson).map(block => block.simulation_pcb_transient_channel_simulation_id)
       const distance = this.input.scopeDistanceMm ?? 32
       if (!Number.isFinite(distance) || distance <= 0 || distance > 32) throw new Error('Copper scope distance must be in (0,32] mm')
     }
@@ -49,7 +49,7 @@ export class RoutedAdmissionSolver extends BaseSolver {
       const artifactPrefix = `blocks/${id}`
       this.plans.push(snapshot({ id, name: block.block.name ?? id, warnings: block.warnings,
         sections: { circuitJson: block.circuit, scope: block.settings.copperScope!, requiredSourcePortIds: block.settings.lanes.flatMap(lane => [lane.from.sourcePortId!, lane.to.sourcePortId!]), referenceSourcePortId: block.settings.channelReference!.sourcePortId!, artifactPrefix },
-        bindings: { circuitJson: block.circuit, mappings, modeling: block.settings, ibisSources: this.input.ibisSources, options, artifactPrefix } }))
+        bindings: { circuitJson: block.circuit, mappings, modeling: block.settings, controls: block.controls, ibisSources: this.input.ibisSources, options, artifactPrefix } }))
     }
     this.stats = { blocks: this.plans.length, selectedConductors: this.plans.reduce((n, plan) => n + plan.sections.scope.selectedPcbTraceIds.length, 0) }
     if (this.plans.length !== this.ids.length) return

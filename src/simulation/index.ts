@@ -12,7 +12,7 @@
  * (Was: declarations.ts, general-spice.ts, stimulus.ts, ngspice part of general-pipeline.ts.)
  */
 export type {
-  SimulationModeling, CircuitNodes, PipelineIbisModel, VoltageProbePlan, SimulationPlan, SafeSimulationPlan,
+  SimulationModeling, CircuitNodes, PipelineIbisModel, VoltageProbePlan, RunControls, SimulationPlan, SafeSimulationPlan,
   Declarations, ElectricalModel, CompiledModel, ExperimentModel, ElectricalSources, SimulationSpiceOptions,
   Experiments, BoundExperiments, ExperimentRun, ExperimentResult,
 } from './types'

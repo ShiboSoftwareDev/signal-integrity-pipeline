@@ -30,8 +30,8 @@ export function TwoTraceBoard({ 'bit-rate': bitRate = '50Mbps', 'duration-second
     <copperpour name="POWER" connectsTo="net.VCC" layer="top" unbroken outline={[{ x: -7, y: 2.3 }, { x: 7, y: 2.3 }, { x: 7, y: 5 }, { x: -7, y: 5 }]} />
     <copperpour name="RETURN" connectsTo="net.GND" layer="bottom" unbroken outline={[{ x: -7, y: -5 }, { x: 7, y: -5 }, { x: 7, y: 5 }, { x: -7, y: 5 }]} />
     <simulation.pcbtransientchannelsimulation name="TWO" bitRate={bitRate} duration={durationSeconds}>
-      <simulation.pcbchannel name="DATA" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" pattern={dataPattern} />
-      <simulation.pcbchannel name="VICTIM" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="0" />
+      <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" pattern={dataPattern} />
+      <simulation.pcbdriverreceiverchannel name="VICTIM" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="0" />
     </simulation.pcbtransientchannelsimulation>
   </board>
 }

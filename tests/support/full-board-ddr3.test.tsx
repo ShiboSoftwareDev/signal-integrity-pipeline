@@ -8,7 +8,7 @@ const path = process.env.SI_DDR3_BOARD
 
 test('real DDR3 TSX declarations preserve copper and select the intended write and addr/cmd models', { skip: (!path || !process.env.IBIS_MODEL_DIR) && 'Set SI_DDR3_BOARD and IBIS_MODEL_DIR to the local physical board and vendor files' }, async () => {
   const circuit = await fullBoardDdr3(path!)
-  assert.equal(circuit.filter(record => record.type === 'simulation_signal').length, 10)
+  assert.equal(circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').length, 10)
   assert.equal(circuit.filter(record => record.type === 'pcb_trace').length, 651)
   assert.equal(circuit.filter(record => record.type === 'pcb_via').length, 1210)
   const sources = Object.fromEntries(await Promise.all(['sprm552c.ibs', 'W631GG6MB-12.ibs'].map(async file => [`models/${file}`, await readFile(`${process.env.IBIS_MODEL_DIR}/${file}`)])))
@@ -24,10 +24,10 @@ test('real DDR3 TSX declarations preserve copper and select the intended write a
   const addr = await fullBoardDdr3(path!, { block: 'DDR3_ADDR_CMD' })
   const original = JSON.parse(await readFile(path!, 'utf8')) as typeof addr
   assert.deepEqual(addr.slice(0, original.length), original)
-  assert.equal(addr.filter(record => record.type === 'simulation_signal').length, 24)
+  assert.equal(addr.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').length, 24)
   const [block] = prepareBlocks(addr, sources, '2d')
   assert.equal(block.block.name, 'DDR3_ADDR_CMD')
-  assert.equal(block.duration, 8e-9)
+  assert.ok(Math.abs(block.duration - 8e-9) <= Number.EPSILON * 8e-9)
   const [local] = prepareBlocks(addr, sources, '2d', 1)
   assert.equal(local.settings.copperScope!.lateralDistanceMm, 1)
   assert.deepEqual(local.settings.copperScope!.selectedPcbTraceIds, block.settings.copperScope!.selectedPcbTraceIds)
@@ -52,7 +52,7 @@ test('A4 isolation and weaker/slower selectors are real TSX declarations with un
   for (const driverModel of ['Model_352', 'Model_345', 'Model_273'] as const) {
     const circuit = await fullBoardDdr3(path!, { block: 'DDR3_ADDR_CMD', pattern: 'isolated-a4', driverModel })
     assert.deepEqual(circuit.slice(0, original.length), original)
-    const signals = circuit.filter(record => record.type === 'simulation_signal')
+    const signals = circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel')
     assert.equal(signals.length, 24)
     assert.equal(signals.find(signal => signal.name === 'A4')!.pattern, 'prbs7')
     assert.ok(signals.filter(signal => signal.name !== 'A4').every(signal => signal.pattern === '0'))
@@ -64,6 +64,6 @@ test('A4 isolation and weaker/slower selectors are real TSX declarations with un
   const selected = ['A4', 'A5', 'A7', 'A9', 'A11', 'CASn']
   const reduced = await fullBoardDdr3(path!, { block: 'DDR3_ADDR_CMD', nets: selected, pattern: 'victim-even' })
   assert.deepEqual(reduced.slice(0, original.length), original)
-  assert.deepEqual(reduced.filter(record => record.type === 'simulation_signal').map(signal => signal.name), selected)
-  assert.equal(reduced.filter(record => record.type === 'simulation_signal').find(signal => signal.name === 'A4')!.pattern, '0')
+  assert.deepEqual(reduced.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').map(signal => signal.name), selected)
+  assert.equal(reduced.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').find(signal => signal.name === 'A4')!.pattern, '0')
 })

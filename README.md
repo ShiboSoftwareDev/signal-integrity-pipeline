@@ -1,7 +1,7 @@
 ## What is it?
 
 Native signal-integrity simulation for tscircuit boards. Describe each test with
-`<simulation.pcbtransientchannelsimulation>` and `<signal>`; the pipeline consumes the resulting Circuit JSON,
+`<simulation.pcbtransientchannelsimulation>` and `<simulation.pcbdriverreceiverchannel>`; the pipeline consumes the resulting Circuit JSON,
 extracts coupled copper with FastHenry/FasterCap, and runs IBIS buffers in ngspice.
 This draft implements the pipeline entry of [RFC #28](https://github.com/tscircuit/rfc/pull/28).
 
@@ -11,7 +11,7 @@ This draft implements the pipeline entry of [RFC #28](https://github.com/tscircu
 import { simulation } from "@tscircuit/core"
 
 <simulation.pcbtransientchannelsimulation name="DATA_TEST" bitRate="20Mbps">
-  <simulation.pcbchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
+  <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
 </simulation.pcbtransientchannelsimulation>
 ```
 
@@ -30,8 +30,12 @@ await writePipelineOutput({ result, outputDir: 'runs/si' })
 Circuit JSON is the electrical input. `ibisSources`, `runSolver` and `onProgress`
 are IO ports. There is no `modeling` option or separate simulation configuration.
 Each `result.blocks` entry owns its matrices, results, numerical settings evidence
-and limitations. `simulationResultCircuitJson` retains the input and appends only
-the RFC's waveform and RLGC result record kinds. Re-running replaces prior SI results. A board with no SI blocks returns an empty block/result collection without invoking a solver. Automatic duration stays absent in source records and is reported on each result block.
+and limitations. `simulationResultCircuitJson` retains the input and appends
+`simulation_signal_waveform_result` and `simulation_pcb_transient_channel_result`
+records. Circuit JSON durations, offsets and sample timestamps use milliseconds.
+The solver still runs in seconds. Re-running replaces prior SI results. A board
+with no SI blocks returns an empty block/result collection without invoking a solver.
+Automatic duration stays absent in source records and is reported on each result block.
 
 Branched routes remain unsupported. Inline IBIS coupled package matrices are
 validated before extraction and lowered to a passive lumped package. Unlisted
@@ -48,8 +52,7 @@ It never substitutes synthetic IBIS. Vendor files remain local and ignored by gi
 
 ```sh
 pnpm install --frozen-lockfile
-# Until the RFC dependencies ship, use the built local circuit-json/props/core overlays
-# documented in docs/native-signal-levels.md.
+# Use a core build with the transient channel elements for TSX examples.
 IBIS_MODEL_DIR=/path/to/vendor/models node --import tsx scripts/run-signal-levels.tsx
 ```
 

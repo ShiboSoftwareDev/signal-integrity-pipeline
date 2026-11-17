@@ -27,7 +27,7 @@ export class RouteBindingsSolver extends BaseSolver {
       const mappings = structuredClone(this.input.mappings)
       if (!mappings.length) throw new Error('Routed compilation requires physical signal mappings')
       mappings[0].sourceTraceIds = this.input.circuitJson.filter(record => record.type === 'pcb_trace').filter(trace => this.input.scope.pcbTraceIds.includes(trace.pcb_trace_id) && !this.input.scope.nonReferenceRailTraceIds.includes(trace.pcb_trace_id)).map(trace => trace.source_trace_id!)
-      this.declarations = generalDeclarations(this.input.circuitJson, { mappings }, this.input.modeling)
+      this.declarations = generalDeclarations(this.input.circuitJson, { mappings }, this.input.modeling, this.input.controls)
       this.plan = this.declarations.plans[0]
       this.plan.durationSeconds = this.input.options.durationSeconds
       this.plan.maxStepSeconds = this.input.options.stepSeconds

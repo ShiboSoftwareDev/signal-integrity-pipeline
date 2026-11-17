@@ -16,7 +16,7 @@ test('native transient admission rejects error logs and incomplete recording cov
   const ibis = { 'models/sn74lvc1g04.ibs': await readFile(`${modelDir}/sn74lvc1g04.ibs`) }
   const [prepared] = prepareBlocks(await renderSignals(<Single />), ibis)
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings)
+  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls)
   const admitted = admitBuffers(declarations.models, ibis, {}, rootScope('buffers'))
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)
   const bound = bindExperiments({ ...declarations, electrical: electricalSources(prepared.circuit, prepared.settings, declarations.nodes) }, geometry, compiled)

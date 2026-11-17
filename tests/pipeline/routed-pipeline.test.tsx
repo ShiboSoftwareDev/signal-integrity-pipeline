@@ -73,7 +73,7 @@ test('six static stages walk all blocks without nested pipelines and produce det
   assert.ok(solver.visualize().lines!.length > 0)
   const renamed = structuredClone(input)
   for (const record of renamed.circuitJson) {
-    if (record.type === 'simulation_signal_integrity' || record.type === 'simulation_signal') record.simulation_signal_integrity_id = 'getOutput'
+    if (record.type === 'simulation_pcb_transient_channel_simulation' || record.type === 'simulation_pcb_driver_receiver_channel') record.simulation_pcb_transient_channel_simulation_id = 'getOutput'
   }
   const collision = new RoutedPipelineSolver(renamed, synthetic)
   await collision.solveAsync()

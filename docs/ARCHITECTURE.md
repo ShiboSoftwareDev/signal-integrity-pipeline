@@ -246,8 +246,7 @@ the copper), plus a pane slot on the side that brings the camera nearest 1.6:1. 
 stage and every failure shares that camera; failure reasons are written in the pane.
 Nets are coloured by electrical connectivity, one hue per net, and a differential
 channel's two legs are two shades of one hue. Channels, bit periods and pairs come from
-`simulation_signal` records, or from an admitted block's `simulation_digital_stimulus`
-records. Copper keeps its real width, and its layer is in the stroke: top solid, inner
+`simulation_pcb_driver_receiver_channel` records. Copper keeps its real width, and its layer is in the stroke: top solid, inner
 layers hollow, bottom dimmed. Each stage draws what it produced:
 
 | Stage | Board | Pane |

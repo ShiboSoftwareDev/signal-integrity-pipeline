@@ -25,7 +25,7 @@ function Board({ unrelatedY = 20, neighbour = false }: { unrelatedY?: number; ne
       pcbPaths={[[".UNRELATED > .A", ".UNRELATED > .B"], [".UNRELATED > .B", ".UNRELATED > .C"]]} />
     <pcbnotetext text="DATA at y=0; unrelated branched copper at y=20 mm" pcbY={25} pcbX={0} />
     <simulation.pcbtransientchannelsimulation name="SCOPED" bitRate="20Mbps">
-      <simulation.pcbchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
+      <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
     </simulation.pcbtransientchannelsimulation>
   </board>
 }
@@ -40,7 +40,7 @@ test('TSX unrelated branched copper cannot reject a selected channel on the full
   const near = prepareBlocks(await renderSignals(<Board neighbour />), sources)[0]
   assert.equal(near.settings.lanes.length, 2, 'nearby quiet conductor is retained')
   const quiet = [...near.pins.values()].find(pin => pin.buffer.type === 'output' && !near.signals.some(signal => 'source_port_id' in signal.driver && signal.driver.source_port_id === pin.port))!
-  assert.ok(near.circuit.some(record => record.type === 'simulation_digital_stimulus' && record.source_port_id === quiet.port && record.transmission_pattern.bits === '0'))
+  assert.ok(near.controls[near.block.simulation_pcb_transient_channel_simulation_id].stimuli.some(stimulus => stimulus.source_port_id === quiet.port && stimulus.transmission_pattern.bits === '0'))
   assert.equal(geometryFromCircuitJson(near.circuit, near.settings).mappings.length, 2)
   const nearbyBranch = await renderSignals(<Board unrelatedY={.5} />)
   assert.throws(() => prepareBlocks(nearbyBranch, sources), /branched routed graphs are not implemented yet/)

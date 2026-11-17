@@ -34,15 +34,15 @@ export function Ddr3Signals({ 'addr-cmd': addrCmd, pattern = 'prbs7', 'duration-
     {cpuPins.map((pin, i) => <React.Fragment key={pin}><trace from={`.U1 > .${pin}`} to={`.U3 > .${dramPins[i]}`} /></React.Fragment>)}
     {!addrCmd && <differentialpair positiveConnection=".U1 > .P1" negativeConnection=".U1 > .P2" />}
     {addrCmd ? <simulation.pcbtransientchannelsimulation name="DDR3_ADDR_CMD" bitRate="400Mbps" duration={duration} allowUnroutedTraces>
-      {addrCmdPins.map(([name, from, to], i) => nets && !nets.includes(name) ? null : <simulation.pcbchannel key={name} name={name}
+      {addrCmdPins.map(([name, from, to], i) => nets && !nets.includes(name) ? null : <simulation.pcbdriverreceiverchannel key={name} name={name}
         driverRef={{ pin: `.U1 > .${from}`, model: i >= 22 ? 'Model_343' : driverModel }} receiverRef={{ pin: `.U3 > .${to}`, model: 'CMD' }}
         bitRate={i >= 22 ? '800Mbps' : '400Mbps'}
         pattern={activeNets && !activeNets.includes(name) ? '0' : pattern === 'isolated-a4' ? name === 'A4' ? 'prbs7' : '0' : i >= 22 ? i === 22 ? '0001111111111111' : '1110000000000000' : pattern === 'quiet' || pattern === 'victim-even' && i % 2 === 0 || pattern === 'victim-odd' && i % 2 === 1 ? '0' : pattern === 'simultaneous' ? '01' : 'prbs7'}
         seed={32 + i * 7 % 32} />)}
     </simulation.pcbtransientchannelsimulation> : <simulation.pcbtransientchannelsimulation name="DDR3_LOWER_WRITE" bitRate="800Mbps" allowUnroutedTraces>
-      {cpu.slice(0, 9).map((pin, i) => <React.Fragment key={pin}><simulation.pcbchannel name={i === 8 ? 'DQM0' : `DQ${i}`}
+      {cpu.slice(0, 9).map((pin, i) => <React.Fragment key={pin}><simulation.pcbdriverreceiverchannel name={i === 8 ? 'DQM0' : `DQ${i}`}
         driverRef={{ pin: `.U1 > .${pin}`, model: 'Model_336' }} receiverRef={{ pin: `.U3 > .${dram[i]}`, model: 'ODT_60' }} /></React.Fragment>)}
-      <simulation.pcbchannel name="DQS0" driverRef={{ pin: { p: '.U1 > .P1', n: '.U1 > .P2' }, model: { p: 'Model_655', n: 'Model_847' } }}
+      <simulation.pcbdriverreceiverchannel name="DQS0" driverRef={{ pin: { p: '.U1 > .P1', n: '.U1 > .P2' }, model: { p: 'Model_655', n: 'Model_847' } }}
         receiverRef={{ pin: { p: '.U3 > .F3', n: '.U3 > .G3' }, model: { p: 'ODT_60', n: 'ODT_60' } }} pattern="clock" offset="0.5UI" />
     </simulation.pcbtransientchannelsimulation>}
   </board>
@@ -87,8 +87,8 @@ export async function withDdr3Signals(physicalRecords: CircuitJson, ibisSources:
     const stackup = declarations.find(record => record.type === 'pcb_stackup')!
     board.push({ ...stackup, pcb_board_id: physicalBoard.pcb_board_id, subcircuit_id: scope })
   }
-  const records = declarations.filter(record => ['simulation_signal_integrity', 'simulation_signal', 'simulation_ibis_model'].includes(record.type))
+  const records = declarations.filter(record => ['simulation_pcb_transient_channel_simulation', 'simulation_pcb_driver_receiver_channel', 'simulation_ibis_model'].includes(record.type))
     .map(record => ({ ...remap(record) as CircuitJson[number], ...('subcircuit_id' in record ? { subcircuit_id: scope } : {}) }))
-  for (const record of records) if (record.type === 'simulation_signal_integrity') record.allow_unrouted_traces = false
+  for (const record of records) if (record.type === 'simulation_pcb_transient_channel_simulation') record.allow_unrouted_traces = false
   return [...board, ...records]
 }

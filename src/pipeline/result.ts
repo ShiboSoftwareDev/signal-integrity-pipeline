@@ -3,12 +3,13 @@ import type { CircuitJson, ChannelGeometry } from '../board'
 import type { ChannelMatrices } from '../extraction'
 import type { RunSolver } from '../solver'
 import type { IbisSources, AssemblyEntry } from '../buffers'
-import type { SimulationPlan, VoltageProbePlan } from '../simulation'
+import type { RunControls, SimulationPlan, VoltageProbePlan } from '../simulation'
 import type { NumericalSettings } from './modeling'
 
 export interface PreparedOptions {
   circuitJson: CircuitJson
   modeling: NumericalSettings
+  controls: Record<string, RunControls>
   ibisSources: IbisSources
   runSolver: RunSolver
   onProgress?: (message: string) => void
@@ -54,8 +55,8 @@ export interface PipelineOptions {
   onProgress?: (message: string) => void
 }
 export interface PipelineBlockResult {
-  duration_s: number
-  simulation_signal_integrity_id: string
+  duration_ms: number
+  simulation_pcb_transient_channel_simulation_id: string
   name: string
   geometry: ChannelGeometry
   matrices: ChannelMatrices

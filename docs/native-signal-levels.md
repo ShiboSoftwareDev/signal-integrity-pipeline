@@ -1,7 +1,7 @@
 # Native PCB transient channel evidence
 
 This draft follows RFC #29 at `9adc0fe`. The examples now use the actual
-`simulation.pcbtransientchannelsimulation`, `simulation.pcbchannel` and
+`simulation.pcbtransientchannelsimulation`, `simulation.pcbdriverreceiverchannel` and
 `simulation.ibismodel` elements rendered by the sibling core build. Public results
 contain only receiver/quiet-driver waveforms and listed-leg total RLGC matrices.
 
@@ -51,8 +51,9 @@ not raw-source acceptance. No new DDR3 waveforms or board-native evidence are cl
 
 ## Reproduction
 
-Build circuit-json `fc6d402`, props `045186a` and core `8ec1af1` and use their local,
-ignored dependency overlays. Vendor IBIS bytes stay under ignored `models/`.
+Install the pinned circuit-json and props packages. Build core with the transient
+channel elements and make that build available to the examples. Vendor IBIS bytes
+stay under ignored `models/`.
 
 ```sh
 export OMP_NUM_THREADS=1 IBIS_MODEL_DIR=models

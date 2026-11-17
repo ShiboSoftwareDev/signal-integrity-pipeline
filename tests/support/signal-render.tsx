@@ -9,7 +9,7 @@ export async function renderSignals(tree: React.ReactElement, expectedErrors: st
   catch (error) {
     const records = (error as { circuitJson?: CircuitJson }).circuitJson
     const errors = records?.filter(record => record.type.endsWith('_error')) ?? []
-    if (records?.some(record => record.type === 'simulation_signal') && errors.length && errors.every(record => expectedErrors.includes(record.type))) return records
+    if (records?.some(record => record.type === 'simulation_pcb_driver_receiver_channel') && errors.length && errors.every(record => expectedErrors.includes(record.type))) return records
     throw error
   }
 }

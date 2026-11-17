@@ -104,17 +104,17 @@ for (const [key, Board] of Object.entries(boards) as [keyof typeof boards, typeo
   try {
     circuitJson = await renderCoreSignals(<Board />)
     if (selectedBlock) {
-      const block = circuitJson.find(record => record.type === 'simulation_signal_integrity' && record.name === selectedBlock)
-      if (block?.type !== 'simulation_signal_integrity') throw new Error(`Unknown block ${selectedBlock}`)
-      circuitJson = circuitJson.filter(record => record.type === 'simulation_signal_integrity' ? record === block : record.type === 'simulation_signal' ? record.simulation_signal_integrity_id === block.simulation_signal_integrity_id : true)
+      const block = circuitJson.find(record => record.type === 'simulation_pcb_transient_channel_simulation' && record.name === selectedBlock)
+      if (block?.type !== 'simulation_pcb_transient_channel_simulation') throw new Error(`Unknown block ${selectedBlock}`)
+      circuitJson = circuitJson.filter(record => record.type === 'simulation_pcb_transient_channel_simulation' ? record === block : record.type === 'simulation_pcb_driver_receiver_channel' ? record.simulation_pcb_transient_channel_simulation_id === block.simulation_pcb_transient_channel_simulation_id : true)
     }
     await writeFile(`${root}/input.json`, JSON.stringify(circuitJson, null, 2))
     const result = await runPipeline({ circuitJson, ibisSources, runSolver: solver, onProgress: console.log })
-    for (const block of result.blocks) for (const record of block.results) if (record.type === 'simulation_signal_waveform') await archive(`${root}/waveforms/${record.simulation_signal_waveform_id}.json`, JSON.stringify(record))
+    for (const block of result.blocks) for (const record of block.results) if (record.type === 'simulation_signal_waveform_result') await archive(`${root}/waveforms/${record.simulation_signal_waveform_result_id}.json`, JSON.stringify(record))
     const summary = { ...provenance, status: 'verified_native', seconds: (Date.now() - started) / 1000, native_requests: calls,
       convergence: Object.fromEntries(Object.entries(result.files).filter(([file]) => /(?:convergence|checks)\.json$/.test(file)).map(([file, body]) => [file, JSON.parse(body)])),
-      blocks: result.blocks.map(block => ({ name: block.name, simulation_signal_integrity_id: block.simulation_signal_integrity_id, duration_s: block.duration_s,
-        results: block.results.map(record => record.type === 'simulation_signal_waveform' ? { ...record, timestamps_s: undefined, voltage_levels: undefined, samples: record.timestamps_s.length } : record), limitations: block.limitations })) }
+      blocks: result.blocks.map(block => ({ name: block.name, simulation_pcb_transient_channel_simulation_id: block.simulation_pcb_transient_channel_simulation_id, duration_ms: block.duration_ms,
+        results: block.results.map(record => record.type === 'simulation_signal_waveform_result' ? { ...record, timestamps_ms: undefined, voltage_levels: undefined, samples: record.timestamps_ms.length } : record), limitations: block.limitations })) }
     await writeFile(`${root}/summary.json`, JSON.stringify(summary, null, 2) + '\n')
     for (const [file, body] of Object.entries(result.files)) await archive(`${root}/${file}`, body)
     console.log(`${level}: verified native in ${summary.seconds}s`)

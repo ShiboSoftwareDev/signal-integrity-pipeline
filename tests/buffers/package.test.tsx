@@ -21,7 +21,7 @@ async function fixture(differential: boolean = false): Promise<{ bytes: Uint8Arr
   const bytes = await readFile(`${modelDir}/${file}`)
   const [prepared] = prepareBlocks(await renderSignals(differential ? <Differential /> : <Single />), { [`models/${file}`]: bytes })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  return { bytes, prepared, geometry, declarations: generalDeclarations(prepared.circuit, geometry, prepared.settings) }
+  return { bytes, prepared, geometry, declarations: generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls) }
 }
 
 test('ideal die rails preserve every pin package at the typical corner', { skip: !modelDir }, async () => {

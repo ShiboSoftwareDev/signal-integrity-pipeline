@@ -1,6 +1,7 @@
-import { isQuiet, channelCopperScope, connectedSourceIds, stackupFromCircuitJson, type CircuitJson, type SignalEndpoint, type SimulationSignal, type SimulationSignalIntegrity } from '../board'
+import { isQuiet, channelCopperScope, connectedSourceIds, stackupFromCircuitJson, type CircuitJson, type SignalEndpoint, type SimulationPcbDriverReceiverChannel, type SimulationPcbTransientChannelSimulation } from '../board'
 import { inspectPins, edgeSeconds, referenceVoltages, coupledPackage, packageCapacitanceWarnings, type InspectedPin, type IbisSources } from '../buffers'
 import { safeId, sha256 } from '../kernel'
+import type { RunControls } from '../simulation'
 import type { NumericalSettings } from './modeling'
 import { signalTopology, validateSignalGraph } from './topology'
 import { compareNames, recordingTime } from './timing'
@@ -8,7 +9,8 @@ import { pinCapabilities } from '../buffers'
 
 export interface PreparedBlock {
   duration: number; topology: Map<string, Set<string>>;
-  block: SimulationSignalIntegrity; signals: SimulationSignal[]; circuit: CircuitJson
+  block: SimulationPcbTransientChannelSimulation; signals: SimulationPcbDriverReceiverChannel[]; circuit: CircuitJson
+  controls: Record<string, RunControls>
   pins: Map<string, InspectedPin>; settings: NumericalSettings
   warnings: string[]
 }
@@ -17,7 +19,7 @@ export function endpointPorts(endpoint: SignalEndpoint): string[] {
   return 'source_port_id' in endpoint ? [endpoint.source_port_id] : [endpoint.p_source_port_id, endpoint.n_source_port_id]
 }
 /** Seeded PRBS generation bounded by the actual requested recording; never allocate a full PRBS31 period. */
-export function signalBits(signal: SimulationSignal, duration: number): string {
+export function signalBits(signal: SimulationPcbDriverReceiverChannel, duration: number): string {
   const order = /^prbs(7|15|31)$/.exec(signal.pattern)
   const width = Number(order?.[1])
   const mask = 2 ** width - 1
@@ -29,7 +31,7 @@ export function signalBits(signal: SimulationSignal, duration: number): string {
     return signal.pattern
   }
   let state = signal.seed!
-  const count = Math.min(mask, Math.ceil(Math.max(0, duration - signal.offset_s) * signal.bit_rate_bps) + 1)
+  const count = Math.min(mask, Math.ceil(Math.max(0, duration - signal.offset_ms / 1000) * signal.bit_rate_bps) + 1)
   const tap = width === 7 ? 6 : width === 15 ? 14 : 28
   let bits = ''
   for (let i = 0; i < count; i++) {
@@ -60,21 +62,21 @@ export function routedLanes(circuit: CircuitJson, scope: import('../board').Copp
 export function prepareBlocks(circuitJson: CircuitJson, sources: IbisSources, extraction: '3d' | '2d' = '3d', distanceMm: number = extraction === '2d' ? 32 : 1): PreparedBlock[] {
   if (!Number.isFinite(distanceMm) || distanceMm <= 0 || distanceMm > 32) throw new Error('Copper scope distance must be in (0,32] mm')
   const blocks = signalBlocks(circuitJson)
-  return blocks.map(block => prepareBlockById(circuitJson, sources, block.simulation_signal_integrity_id, extraction, distanceMm))
+  return blocks.map(block => prepareBlockById(circuitJson, sources, block.simulation_pcb_transient_channel_simulation_id, extraction, distanceMm))
 }
 /** Validate the shared block namespace before any independent block work. */
-export function signalBlocks(circuitJson: CircuitJson): SimulationSignalIntegrity[] {
-  const blocks = circuitJson.filter(r => r.type === 'simulation_signal_integrity')
+export function signalBlocks(circuitJson: CircuitJson): SimulationPcbTransientChannelSimulation[] {
+  const blocks = circuitJson.filter(r => r.type === 'simulation_pcb_transient_channel_simulation')
   if (blocks.length > 1 && blocks.some(block => !block.name)) throw new Error(`This board has ${blocks.length} <simulation.pcbtransientchannelsimulation> blocks; give each a name.`)
-  const ids = new Set(blocks.map(b => b.simulation_signal_integrity_id))
-  if (ids.size !== blocks.length) throw new Error('Duplicate simulation_signal_integrity identifier')
-  for (const signal of circuitJson.filter(r => r.type === 'simulation_signal')) if (!ids.has(signal.simulation_signal_integrity_id)) throw new Error(`${signal.name}: unknown signal-integrity block`)
+  const ids = new Set(blocks.map(b => b.simulation_pcb_transient_channel_simulation_id))
+  if (ids.size !== blocks.length) throw new Error('Duplicate simulation_pcb_transient_channel_simulation identifier')
+  for (const signal of circuitJson.filter(r => r.type === 'simulation_pcb_driver_receiver_channel')) if (!ids.has(signal.simulation_pcb_transient_channel_simulation_id)) throw new Error(`${signal.name}: unknown signal-integrity block`)
   return blocks
 }
 /** Admit exactly one block through the same lowering used by prepareBlocks. */
 export function prepareBlockById(circuit: CircuitJson, sources: IbisSources, blockId: string, extraction: '3d' | '2d' = '3d', distanceMm: number = extraction === '2d' ? 32 : 1): PreparedBlock {
   if (!Number.isFinite(distanceMm) || distanceMm <= 0 || distanceMm > 32) throw new Error('Copper scope distance must be in (0,32] mm')
-  const matches = signalBlocks(circuit).filter(block => block.simulation_signal_integrity_id === blockId)
+  const matches = signalBlocks(circuit).filter(block => block.simulation_pcb_transient_channel_simulation_id === blockId)
   if (matches.length !== 1) throw new Error(`Expected exactly one signal-integrity block ${blockId}`)
   const warnings: string[] = []
   try {
@@ -84,13 +86,16 @@ export function prepareBlockById(circuit: CircuitJson, sources: IbisSources, blo
   }
 }
 /** Independent block: model overrides, copper, pin states, references and stimuli. */
-function prepareBlock(input: CircuitJson, block: SimulationSignalIntegrity, sources: IbisSources, warnings: string[], extraction: '3d' | '2d', distanceMm: number): PreparedBlock {
-  const id = safeId(block.simulation_signal_integrity_id, 'simulationSignalIntegrityId')
-  const signals = input.filter(r => r.type === 'simulation_signal').filter(r => r.simulation_signal_integrity_id === id).sort((a, b) => compareNames(a.name, b.name))
-  if (!signals.length || new Set(signals.map(s => s.name)).size !== signals.length || new Set(signals.map(s => s.simulation_signal_id)).size !== signals.length) throw new Error(`${block.name ?? id}: require distinct named signals`)
+function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSimulation, sources: IbisSources, warnings: string[], extraction: '3d' | '2d', distanceMm: number): PreparedBlock {
+  const id = safeId(block.simulation_pcb_transient_channel_simulation_id, 'simulationPcbTransientChannelSimulationId')
+  const signals = input.filter(r => r.type === 'simulation_pcb_driver_receiver_channel').filter(r => r.simulation_pcb_transient_channel_simulation_id === id).sort((a, b) => compareNames(a.name, b.name))
+  if (!signals.length || new Set(signals.map(s => s.name)).size !== signals.length || new Set(signals.map(s => s.simulation_pcb_driver_receiver_channel_id)).size !== signals.length) throw new Error(`${block.name ?? id}: require distinct named signals`)
   const timing = recordingTime(signals)
-  const duration = block.duration_s ?? timing.duration
-  const circuit = structuredClone(input.filter(r => !r.type.startsWith('simulation_') || ['simulation_ibis_model', 'simulation_voltage_source', 'simulation_spice_subcircuit'].includes(r.type)))
+  const duration = block.duration_ms === undefined ? timing.duration : block.duration_ms / 1000
+  const circuit = structuredClone([
+    ...input.filter(r => !r.type.startsWith('simulation_') || ['simulation_ibis_model', 'simulation_voltage_source', 'simulation_spice_subcircuit'].includes(r.type)),
+    block, ...signals,
+  ])
   for (const model of circuit.filter(r => r.type === 'simulation_ibis_model')) {
     for (const signal of signals) for (const endpoint of [signal.driver, ...signal.receivers]) {
       for (const [index, port] of endpointPorts(endpoint).entries()) {
@@ -120,11 +125,11 @@ function prepareBlock(input: CircuitJson, block: SimulationSignalIntegrity, sour
     model.ibis_pin_name_to_reference_source_port_ids ??= {}
     model.ibis_pin_name_to_reference_source_port_ids[pin.pin] ??= { pullup_reference_source_port_id: pin.power, power_clamp_reference_source_port_id: pin.power, pulldown_reference_source_port_id: pin.ground, ground_clamp_reference_source_port_id: pin.ground }
   }
-  const driven = new Map<string, SimulationSignal>()
+  const driven = new Map<string, SimulationPcbDriverReceiverChannel>()
   const topology = new Map<string, string>()
   const edges: number[] = []
   for (const signal of signals) {
-    safeId(signal.simulation_signal_id, 'simulationSignalId')
+    safeId(signal.simulation_pcb_driver_receiver_channel_id, 'simulationPcbDriverReceiverChannelId')
     const drivers = endpointPorts(signal.driver)
     for (const port of drivers) {
       const pin = pins.get(port)
@@ -234,17 +239,18 @@ function prepareBlock(input: CircuitJson, block: SimulationSignalIntegrity, sour
     }
   }
   for (let i = circuit.length - 1; i >= 0; i--) if (circuit[i].type === 'simulation_voltage_source') circuit.splice(i, 1)
+  const controls: RunControls = { states: [], stimuli: [] }
   const scope = circuit.find(r => r.type === 'pcb_board')?.subcircuit_id
-  circuit.push({ type: 'simulation_experiment', simulation_experiment_id: id, name: block.name ?? id, experiment_type: 'spice_transient_analysis', spice_engine: 'pcb_spice', spice_options: { reltol: 1e-5, abstol: 1e-12, vntol: 1e-8 }, end_time_ms: duration * 1000, start_time_ms: 0, time_per_step: step * 1000, subcircuit_id: scope } as never)
+  circuit.push({ type: 'simulation_experiment', simulation_experiment_id: id, name: block.name ?? id, experiment_type: 'spice_transient_analysis', spice_engine: 'pcb_spice', spice_options: { reltol: 1e-5, abstol: 1e-12, vntol: 1e-8 }, end_time_ms: duration * 1000, start_time_ms: 0, time_per_step: step * 1000, subcircuit_id: scope })
   for (const pin of pins.values()) {
     const signal = driven.get(pin.port)
     const capabilities = pinCapabilities(pin)
     const output = !!signal || !capabilities.receive
     const enabled = signal ? !signal.driver_disabled : capabilities.drive && !capabilities.disable && !capabilities.receive
     if (!signal && enabled && topology.has(pin.port)) throw new Error(`Signal "${topology.get(pin.port)}" has two drivers: the listed driver and ${pin.port}. Exactly one pin drives a signal.`)
-    circuit.push({ type: 'simulation_ibis_pin_state', simulation_ibis_pin_state_id: `${id}_${pin.port}`, simulation_experiment_id: id, source_port_id: pin.port, is_output: output, ...(output ? { is_output_enabled: enabled } : {}) } as never)
-    if (!signal && enabled) circuit.push({ type: 'simulation_digital_stimulus', simulation_digital_stimulus_id: `${id}_${pin.port}_low`, name: pin.port, simulation_experiment_id: id, source_port_id: pin.port,
-      bit_duration_ms: 1000 / rate, start_time_ms: 0, initial_state: 0, inverted: pin.buffer.polarity === 'inverting', transmission_pattern: { transmission_type: 'bits', bits: '0', repeat: true } } as never)
+    controls.states.push({ source_port_id: pin.port, is_output: output, ...(output ? { is_output_enabled: enabled } : {}) })
+    if (!signal && enabled) controls.stimuli.push({ name: pin.port, source_port_id: pin.port,
+      bit_duration_ms: 1000 / rate, start_time_ms: 0, initial_state: 0, inverted: pin.buffer.polarity === 'inverting', transmission_pattern: { transmission_type: 'bits', bits: '0', repeat: true } })
   }
   for (const signal of signals) {
     const bits = signalBits(signal, duration)
@@ -252,13 +258,13 @@ function prepareBlock(input: CircuitJson, block: SimulationSignalIntegrity, sour
     for (const [index, port] of endpointPorts(signal.driver).entries()) {
       const pin = pins.get(port)!
       const inversion = Boolean(index) !== (pin.buffer.polarity === 'inverting')
-      circuit.push({ type: 'simulation_digital_stimulus', simulation_digital_stimulus_id: `${id}_${signal.simulation_signal_id}_${index}`, name: signal.name, simulation_experiment_id: id, source_port_id: port, bit_duration_ms: 1000 / signal.bit_rate_bps, start_time_ms: signal.offset_s * 1000, initial_state: Number(bits[0]), inverted: inversion, transmission_pattern: { transmission_type: 'bits', bits, repeat: true } } as never)
+      controls.stimuli.push({ name: signal.name, source_port_id: port, bit_duration_ms: 1000 / signal.bit_rate_bps, start_time_ms: signal.offset_ms, initial_state: bits[0] === '1' ? 1 : 0, inverted: inversion, transmission_pattern: { transmission_type: 'bits', bits, repeat: true } })
     }
   }
   for (const signal of signals) for (const [index, endpoint] of [...signal.receivers, ...(isQuiet(signal) ? [signal.driver] : [])].entries()) {
     const ports = endpointPorts(endpoint)
     const ref = 'p_source_port_id' in endpoint ? ports[1] : pins.get(ports[0])!.ground
-    circuit.push({ type: 'simulation_voltage_probe', simulation_voltage_probe_id: `${signal.simulation_signal_id}_${index}`, name: `${signal.name}_${index}`, signal_input_source_port_id: ports[0], reference_input_source_port_id: ref, subcircuit_id: scope } as never)
+    circuit.push({ type: 'simulation_voltage_probe', simulation_voltage_probe_id: `${signal.simulation_pcb_driver_receiver_channel_id}_${index}`, name: `${signal.name}_${index}`, signal_input_source_port_id: ports[0], reference_input_source_port_id: ref, subcircuit_id: scope })
   }
-  return { block, signals, circuit, pins, settings, warnings, duration, topology: new Map([...driven].map(([port, signal]) => [port, signalTopology(circuit, port, rails, new Set(endpointPorts(signal.driver).filter(other => other !== port)))])) }
+  return { block, signals, circuit, controls: { [id]: controls }, pins, settings, warnings, duration, topology: new Map([...driven].map(([port, signal]) => [port, signalTopology(circuit, port, rails, new Set(endpointPorts(signal.driver).filter(other => other !== port)))])) }
 }

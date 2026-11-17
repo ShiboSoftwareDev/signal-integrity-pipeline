@@ -13,7 +13,7 @@ export default () => (
     <copperpour connectsTo="net.GND" layer="bottom" unbroken />
 
     <simulation.pcbtransientchannelsimulation bitRate="20Mbps">
-      <simulation.pcbchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
+      <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
     </simulation.pcbtransientchannelsimulation>
   </board>
 )

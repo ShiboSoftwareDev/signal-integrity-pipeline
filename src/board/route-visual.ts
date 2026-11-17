@@ -121,26 +121,17 @@ export function routeView(circuit: CircuitJson, scope: CopperScope): RouteView {
     if (net) net.sources.push(id)
     else nets.push({ ids: seed ? connectedSourceIds(circuit, seed) : new Set([id]), sources: [id] })
   }
-  // Channels come from signal records in a whole circuit, or from the per-driver stimuli of an admitted block; both name the same pairs and bit periods.
-  const channels = new Map<string, { ends: Set<string>; legs: string[]; unitInterval: number }>()
-  for (const record of circuit) {
-    // Read structurally: some circuit-json releases leave signal records out of the record union.
-    const signal = record as unknown as { type: string; name: string; driver: Record<string, unknown>; receivers: Record<string, unknown>[]; bit_rate_bps: number }
-    if (signal.type === 'simulation_signal') {
-      const legs = [signal.driver.p_source_port_id, signal.driver.n_source_port_id].every((port) => typeof port === 'string') ? [signal.driver.p_source_port_id, signal.driver.n_source_port_id] : [signal.driver.source_port_id]
-      channels.set(signal.name, { ends: new Set([signal.driver, ...signal.receivers].flatMap((end) => Object.values(end).filter((value): value is string => typeof value === 'string'))), legs: legs.filter((port): port is string => typeof port === 'string'), unitInterval: 1 / signal.bit_rate_bps })
-    }
-    if (record.type === 'simulation_digital_stimulus' && record.name) {
-      const channel = channels.get(record.name) ?? { ends: new Set<string>(), legs: [], unitInterval: record.bit_duration_ms / 1000 }
-      channel.ends.add(record.source_port_id)
-      if (!channel.legs.includes(record.source_port_id)) channel.legs[record.inverted ? 1 : channel.legs[0] ? 1 : 0] = record.source_port_id
-      channels.set(record.name, channel)
-    }
+  const channels = new Map<string, { ends: string[]; legs: string[]; unitInterval: number }>()
+  for (const signal of circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel')) {
+    /** Select the physical ports, excluding optional IBIS model names. */
+    const ports = (end: typeof signal.driver): string[] => 'source_port_id' in end ? [end.source_port_id] : [end.p_source_port_id, end.n_source_port_id]
+    const legs = ports(signal.driver)
+    channels.set(signal.name, { ends: [...legs, ...signal.receivers.flatMap(ports)], legs, unitInterval: 1 / signal.bit_rate_bps })
   }
   const units: { nets: (typeof nets)[number][]; name?: string; unitInterval?: number }[] = []
   for (const net of nets) {
     if (units.some((unit) => unit.nets.includes(net))) continue
-    const [name, channel] = [...channels].find(([, entry]) => [...entry.ends].some((port) => net.ids.has(port))) ?? []
+    const [name, channel] = [...channels].find(([, entry]) => entry.ends.some((port) => net.ids.has(port))) ?? []
     const pair = (channel?.legs.length === 2 ? channel.legs : []).map((port) => nets.find((entry) => entry.ids.has(port))).filter((entry): entry is (typeof nets)[number] => !!entry)
     units.push({ nets: pair.length === 2 && pair[0] !== pair[1] ? pair : [net], name, unitInterval: channel?.unitInterval })
   }

@@ -8,6 +8,6 @@ export default () => <board width={16} height={12} layers={4} thickness={1.6} fa
   <Reference />
   <trace from=".TX > .Y" to=".RX > .A" width={.2} pcbPath={['.TX > .Y', '.RX > .A']} />
   <simulation.pcbtransientchannelsimulation name="SINGLE" bitRate={20e6} duration={48 / 20e6}>
-    <simulation.pcbchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
+    <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
   </simulation.pcbtransientchannelsimulation>
 </board>

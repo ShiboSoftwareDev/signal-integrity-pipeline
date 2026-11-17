@@ -81,7 +81,7 @@ export function routedVisualFixture(blocks: number = 1): Promise<{ root: RoutedP
     const tree = blocks === 1 ? board : React.cloneElement(board, {},
       ...React.Children.toArray(board.props.children).filter(child => !React.isValidElement(child) || child.type !== simulation.pcbtransientchannelsimulation),
       ...[0, 1].map(i => <simulation.pcbtransientchannelsimulation key={i} name={`BLOCK${i}`} bitRate="400Mbps" duration={4e-9}>
-        <simulation.pcbchannel name={`DATA${i}`} driverRef={`.TX${i} > .Y`} receiverRef={`.RX${i} > .A`} pattern="01" />
+        <simulation.pcbdriverreceiverchannel name={`DATA${i}`} driverRef={`.TX${i} > .Y`} receiverRef={`.RX${i} > .A`} pattern="01" />
       </simulation.pcbtransientchannelsimulation>),
     )
     circuit.add(tree)

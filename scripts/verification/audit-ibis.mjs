@@ -38,8 +38,7 @@ export async function auditIbis(out, experimentDir, circuit, run) {
   const assemblies = await json(join(experimentDir, 'native-ibis-assembly.json'))
   const declaredModels = circuit.filter(element => element.type === 'simulation_ibis_model')
   assert.deepEqual(assemblies.map(model => model.simulationIbisModelId).sort(), declaredModels.map(model => model.simulation_ibis_model_id).sort(), 'Each native model attachment is assembled exactly once')
-  const states = circuit.filter(element => element.type === 'simulation_ibis_pin_state' && element.simulation_experiment_id === run.simulationExperimentId)
-  const stimuli = circuit.filter(element => element.type === 'simulation_digital_stimulus' && element.simulation_experiment_id === run.simulationExperimentId)
+  const { states, stimuli } = run.plan
   const nodeMap = await json(join(out, 'electrical-node-map.json'))
   const deck = await readFile(join(experimentDir, 'simulation.cir'), 'utf8')
   const declaredDcRailNodes = new Set((await declaredDcSupplies(out,circuit,nodeMap,deck))

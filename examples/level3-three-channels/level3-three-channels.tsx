@@ -18,21 +18,21 @@ export default () => (
     <copperpour connectsTo="net.GND" layer="bottom" unbroken />
 
     <simulation.pcbtransientchannelsimulation name="TRAFFIC" bitRate="20Mbps">
-      <simulation.pcbchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
-      <simulation.pcbchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" />
-      <simulation.pcbchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
     </simulation.pcbtransientchannelsimulation>
 
     <simulation.pcbtransientchannelsimulation name="XTALK_LOW" bitRate="20Mbps">
-      <simulation.pcbchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
-      <simulation.pcbchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="0" />
-      <simulation.pcbchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="0" />
+      <simulation.pcbdriverreceiverchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
     </simulation.pcbtransientchannelsimulation>
 
     <simulation.pcbtransientchannelsimulation name="XTALK_HIGH" bitRate="20Mbps">
-      <simulation.pcbchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
-      <simulation.pcbchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="1" />
-      <simulation.pcbchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D0" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" />
+      <simulation.pcbdriverreceiverchannel name="D1" driverRef=".TX1 > .Y" receiverRef=".RX1 > .A" pattern="1" />
+      <simulation.pcbdriverreceiverchannel name="D2" driverRef=".TX2 > .Y" receiverRef=".RX2 > .A" />
     </simulation.pcbtransientchannelsimulation>
   </board>
 )
