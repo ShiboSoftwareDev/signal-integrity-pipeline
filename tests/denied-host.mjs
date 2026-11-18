@@ -9,7 +9,7 @@ const denied=()=>{
 }
 const builtin=new Set([...builtinModules,...builtinModules.map(name=>'node:'+name)])
 registerHooks({resolve(specifier,context,next){
-  if(builtin.has(specifier)||specifier==='react'||specifier.startsWith('@tscircuit/core')||specifier.startsWith('tsx')||/^https?:/.test(specifier)) throw Error('Forbidden import '+specifier+' from '+context.parentURL)
+  if(builtin.has(specifier)||specifier==='react'||specifier.startsWith('@tscircuit/core')||specifier.startsWith('tsx')||specifier.startsWith('http:')||specifier.startsWith('https:')) throw Error('Forbidden import '+specifier+' from '+context.parentURL)
   return next(specifier,context)
 }})
 globalThis.fetch=denied
