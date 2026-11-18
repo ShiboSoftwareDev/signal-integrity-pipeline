@@ -12,6 +12,15 @@ import { boardPictureSvg } from '../src/board/board-picture'
 import Board from '../examples/level4-ddr3-write/level4-ddr3-write'
 import { withDdr3Signals } from '../examples/routed/ddr3-signals'
 
+/** Use the first ngspice failure line or a short summary of the error. */
+function ddrFailureReason(error: unknown): string {
+  const diagnostic = String(error).replaceAll('\r\n', '\n').split('\n').find(line => {
+    const lower = line.toLowerCase()
+    return lower.includes('timestep too small') || lower.includes('fatal') || lower.includes('aborted')
+  })
+  return diagnostic ?? String(error).replaceAll('\r\n', '\n').split('\n', 1)[0].slice(0, 240)
+}
+
 // Every artifact can contain local board/model data: write only to an ignored or external directory.
 const output = resolve(process.env.SI_STAGE_VISUALS_DIR ?? '.cache/ddr-level4')
 const directory = process.env.IBIS_MODEL_DIR ?? 'models'
@@ -88,7 +97,7 @@ try {
   console.log('Completed candidate-unqualified', { cells: block.compiled.evidence.cells, deckBytes: Buffer.byteLength(block.compiled.deck), deckSha256: sha256(block.compiled.deck), probes })
 } catch (error) {
   const stage = root.getSolver('RouteTransientSolver')
-  const reason = String(error).split(/\r?\n/).find(line => /timestep too small|fatal|aborted/i.test(line)) ?? String(error).split(/\r?\n/, 1)[0].slice(0, 240)
+  const reason = ddrFailureReason(error)
   if (stage) await render('stage-6-failed', stage.visualize())
   await writeFile(join(output, 'failure.log'), String(error))
   await writeFile(join(output, 'failure.json'), JSON.stringify({ stage: root.getCurrentStageName(), error: reason, capture: 'No completed waveform' }, null, 2))
