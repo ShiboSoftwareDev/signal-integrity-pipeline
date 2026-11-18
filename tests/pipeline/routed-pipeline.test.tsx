@@ -15,6 +15,7 @@ import { routedStages } from '../../src/pipeline'
 import { routedProblem } from '../support/routed-fixture'
 import { renderCoreSignals } from '../support/core-render'
 import { driverWeights, transientDuration, voltageNames } from '../support/routed-deck'
+import Differential from '../../examples/level1-differential/level1-differential'
 import type { GraphicsObject } from 'graphics-debug'
 
 test('TSX two-trace routed deck pins the single coupled skin multiport and declarative transient vectors', { skip: !process.env.IBIS_MODEL_DIR && 'Set IBIS_MODEL_DIR to local vendor sn74lvc1g04.ibs; vendor bytes are not committed' }, async () => {
@@ -182,9 +183,17 @@ function assertDrawing(circuit: CircuitJson, drawing: GraphicsObject, state: str
   assert.ok(view.maxX > view.minX && view.maxY > view.minY, `${state}: degenerate camera`)
 }
 
-for (const name of ['two-trace'])
+for (const name of ['two-trace', 'level1-differential'])
   test(`${name}: every iteration, stage boundary and pending transient has a physical drawing`, async (context) => {
-    const input = (await routedVisualFixture()).root.inputProblem
+    let input
+    if (name === 'two-trace') input = (await routedVisualFixture()).root.inputProblem
+    else {
+      if (!process.env.IBIS_MODEL_DIR) return context.skip('Set IBIS_MODEL_DIR for the local differential vendor model')
+      input = {
+        circuitJson: await renderCoreSignals(<Differential />),
+        ibisSources: { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`, 'utf8') },
+      }
+    }
     const circuit: CircuitJson = input.circuitJson
     let calls = 0
     const solver: RoutedPipelineSolver = new RoutedPipelineSolver(input, {

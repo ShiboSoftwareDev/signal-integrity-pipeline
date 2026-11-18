@@ -57,7 +57,8 @@ The pipeline reads the IBIS assets and validates the selected model capabilities
 ngspice must already be installed; `createNativeSolver({ tools: { ngspice } })`
 accepts an executable path. No package install or solver download happens during
 a solve. Native processes are serialized and run with `OMP_NUM_THREADS=1`.
-Vendor IBIS files and board JSON remain local and ignored by git.
+Vendor IBIS files and board JSON remain local and ignored by git; see
+[the routed examples](examples/routed/README.md) for the local runners.
 
 ## General workflow
 
@@ -75,6 +76,10 @@ flowchart TD
   s6 --> out[/"Captures + deck and evidence artifacts"/]
   s1 -->|"no SI blocks"| out
 ```
+
+The pipeline is inspectable with solver-utils. All six stage rows exist before the
+first step; each stage processes all admitted blocks in order, with no nested block
+pipelines.
 
 <!-- routed-stages:start -->
 | # | Stage solver |
