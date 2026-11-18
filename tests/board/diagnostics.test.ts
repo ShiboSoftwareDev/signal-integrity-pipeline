@@ -12,7 +12,11 @@ const rejects = (f: () => unknown, code: string, message?: RegExp): void => asse
 
 test('port selection and routed primitive type failures', () => {
   rejects(() => selectPort([], { component: 'missing', port: '1' }), 'pin_mapping', /missing: expected one source component, got 0/)
-  const trace = { type: 'pcb_trace', pcb_trace_id: 't0', route: [{ route_type: 'through_pad' }] } as unknown as PcbTrace
+  const trace: PcbTrace = {
+    type: 'pcb_trace',
+    pcb_trace_id: 'pcb_trace_0',
+    route: [{ route_type: 'through_pad', start: { x: 0, y: 0 }, end: { x: 0, y: 0 }, width: .2, start_layer: 'top', end_layer: 'bottom' }],
+  }
   rejects(() => resolveRouteVias([], trace), 'route_type', /Only wire\/via routed primitives supported/)
 })
 

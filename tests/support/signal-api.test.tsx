@@ -42,8 +42,8 @@ test('Real core renders source records and core-owned stackup without loading ve
 test('four-conductor derivation is invariant under signal record order', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Four />)
   const ibis = await sources()
-  const a = prepareBlocks({ circuitJson: circuit, sources: ibis })[0]
-  const b = prepareBlocks({ circuitJson: [...circuit.filter(r => r.type !== 'simulation_pcb_driver_receiver_channel'), ...circuit.filter(r => r.type === 'simulation_pcb_driver_receiver_channel').reverse()], sources: ibis })[0]
+  const a = prepareBlocks({ circuit, sources: ibis })[0]
+  const b = prepareBlocks({ circuit: [...circuit.filter(r => r.type !== 'simulation_pcb_driver_receiver_channel'), ...circuit.filter(r => r.type === 'simulation_pcb_driver_receiver_channel').reverse()], sources: ibis })[0]
   assert.equal(a.settings.lanes.length, 4)
   assert.deepEqual(a.settings, b.settings)
 })
@@ -51,14 +51,14 @@ test('four-conductor derivation is invariant under signal record order', { skip:
 test('RS485 differential identity and the placed termination are derived from real vendor data and TSX', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Differential />)
   const ibis = await sources()
-  const prepared = prepareBlocks({ circuitJson: circuit, sources: ibis })[0]
+  const prepared = prepareBlocks({ circuit, sources: ibis })[0]
   const receiver = prepared.signals[0].receivers[0]
   assert.ok('p_source_port_id' in receiver)
   if (!('p_source_port_id' in receiver)) return
   const resistor = circuit.filter(r => r.type === 'source_component').find(r => r.name === 'RTERM')!
   assert.ok(prepared.settings.passiveComponents?.some(p => p.sourceComponentId === resistor.source_component_id))
   const reversed = await renderSignals(<Differential reversed />)
-  assert.throws(() => prepareBlocks({ circuitJson: reversed, sources: ibis }), /Signal "BUS": differential pin order disagrees with IBIS/)
+  assert.throws(() => prepareBlocks({ circuit: reversed, sources: ibis }), /Signal "BUS": differential pin order disagrees with IBIS/)
 })
 
 test('signal packages and vendor reference evidence remain present; disabled drivers reject output-only buffers', { skip: !modelDir }, async () => {
@@ -67,13 +67,13 @@ test('signal packages and vendor reference evidence remain present; disabled dri
   if (signal.type !== 'simulation_pcb_driver_receiver_channel') throw new Error('missing signal')
   signal.driver_disabled = true
   const ibis = await sources()
-  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: ibis }), /has no disabled state/)
+  assert.throws(() => prepareBlocks({ circuit, sources: ibis }), /has no disabled state/)
   signal.driver_disabled = false
   signal.pattern = '0'
   delete signal.seed
   const bindings = admittedBindings(circuit, ibis)
-  const declarations = generalDeclarations(bindings.circuitJson, bindings, bindings.modeling, bindings.controls)
-  const admitted = admitBuffers(declarations.models, ibis, {}, rootScope('buffers'))
+  const declarations = generalDeclarations({ circuit: bindings.circuitJson, mappings: bindings.mappings, modeling: bindings.modeling, controls: bindings.controls })
+  const admitted = admitBuffers({ models: declarations.models, ibisSources: ibis, scope: rootScope('buffers') })
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)[0]
   for (const model of compiled) {
     assert.equal(model.metadata.packagePolicy, 'vendor')

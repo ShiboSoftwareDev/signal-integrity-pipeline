@@ -11,7 +11,10 @@ test('native pcbPath resolves via dimensions from pcb_via', async () => {
   assert.deepEqual(via.layers, ['top', 'inner1', 'inner2'])
   const trace = circuit.find(e => e.type === 'pcb_trace' && e.route.some(p => p.route_type === 'via'))!
   if (trace.type !== 'pcb_trace') throw new Error('expected trace')
-  assert.deepEqual(resolveRouteVias(circuit, trace).flatMap(p => p.route_type === 'via' ? [p.hole_diameter] : []), [.2, .2])
+  assert.deepEqual(resolveRouteVias(circuit, trace).flatMap(point => {
+    if (point.route_type !== 'via') return []
+    return [point.hole_diameter]
+  }), [.2, .2])
 })
 
 test('native via does not substitute an unrelated co-located via', async () => {

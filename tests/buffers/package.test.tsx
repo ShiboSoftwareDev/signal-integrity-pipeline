@@ -13,10 +13,15 @@ const modelDir = process.env.IBIS_MODEL_DIR
 
 /** Use the real TSX board and unmodified vendor model, without invoking extraction. */
 async function fixture(differential: boolean = false): Promise<{ bytes: Uint8Array; declarations: ReturnType<typeof generalDeclarations> }> {
-  const file = differential ? 'sn65hvd72.ibs' : 'sn74lvc1g04.ibs'
+  let file = 'sn74lvc1g04.ibs'
+  let board = <Single />
+  if (differential) {
+    file = 'sn65hvd72.ibs'
+    board = <Differential />
+  }
   const bytes = await readFile(`${modelDir}/${file}`)
-  const bindings = admittedBindings(await renderSignals(differential ? <Differential /> : <Single />), { [`models/${file}`]: bytes })
-  return { bytes, declarations: generalDeclarations(bindings.circuitJson, bindings, bindings.modeling, bindings.controls) }
+  const bindings = admittedBindings(await renderSignals(board), { [`models/${file}`]: bytes })
+  return { bytes, declarations: generalDeclarations({ circuit: bindings.circuitJson, mappings: bindings.mappings, modeling: bindings.modeling, controls: bindings.controls }) }
 }
 
 test('ideal die rails preserve every pin package at the typical corner', { skip: !modelDir }, async () => {

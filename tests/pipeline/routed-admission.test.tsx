@@ -8,7 +8,9 @@ test('admission uses shared block lowering, retains warnings and rejects invalid
   const input = await routedProblem(context)
   if (!input) return
   const [id] = signalBlocks(input.circuitJson).map(block => block.simulation_pcb_transient_channel_simulation_id)
-  const block = prepareBlockById(input.circuitJson, input.ibisSources, id, input.scopeDistanceMm)
+  const block = prepareBlockById({
+    circuit: input.circuitJson, sources: input.ibisSources, blockId: id, distanceMm: input.scopeDistanceMm,
+  })
   const solver = new RoutedAdmissionSolver(input)
   solver.step()
   assert.equal(solver.solved, true)

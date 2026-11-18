@@ -14,7 +14,7 @@ function delayPerMetre(slice: ExtractedRouteSlice): number {
   return Math.sqrt(Math.max(...slice.line.L.map(row => row.reduce((total, entry) => total + Math.abs(entry), 0))) * Math.max(...slice.line.C.map(row => row.reduce((total, entry) => total + Math.abs(entry), 0))))
 }
 
-interface ArcCell { wire: RouteWire; start: number; end: number; before: string; after: string }
+interface ArcCell { start: number; end: number; before: string; after: string }
 interface ArcWire { offset: number; length: number; cells: number[]; sign: number }
 
 /** Locate a physical point along the original (simplified) polyline, including its bends. */
@@ -87,7 +87,7 @@ export function* routeLadderSteps({ extracted, endpoint, riseSeconds, refinement
       const end = length * (i + 1) / count
       const a = arcPoint(start, { run, arc })
       const b = arcPoint(end, { run, arc })
-      cells.push({ wire: seed, start, end, before: endpoint(a.wire, a.position), after: endpoint(b.wire, b.position) })
+      cells.push({ start, end, before: endpoint(a.wire, a.position), after: endpoint(b.wire, b.position) })
     }
     for (const wire of run) {
       const entry = arc.get(wire.id)!

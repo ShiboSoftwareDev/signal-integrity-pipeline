@@ -13,7 +13,7 @@ test('real DDR3 TSX declarations preserve copper and select the intended write a
   assert.equal(circuit.filter(record => record.type === 'pcb_via').length, 1210)
   const sources = Object.fromEntries(await Promise.all(['sprm552c.ibs', 'W631GG6MB-12.ibs'].map(async file => [`models/${file}`, await readFile(`${process.env.IBIS_MODEL_DIR}/${file}`)])))
   // Branched neighbours such as RN5_INPUT_SYS4_CPU_PULL stay in the copper scope; only selected copper becomes lanes.
-  const [write] = prepareBlocks(circuit, sources, 1)
+  const [write] = prepareBlocks({ circuit, sources, distanceMm: 1 })
   assert.ok(write.warnings.some(warning => warning.includes('models/sprm552c.ibs SHA-256 23011a68eb8ff35562615b5b108edcb9f017c5e61f4f68e32f35c5fb88f163be') && warning.includes('negated 30450')))
   assert.equal(write.settings.copperScope.selectedPcbTraceIds.length, 11)
   assert.ok(write.settings.copperScope.omitted.traces > 400)
@@ -22,15 +22,15 @@ test('real DDR3 TSX declarations preserve copper and select the intended write a
   const original = JSON.parse(await readFile(path!, 'utf8')) as typeof addr
   assert.deepEqual(addr.slice(0, original.length), original)
   assert.equal(addr.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').length, 24)
-  const [block] = prepareBlocks(addr, sources)
+  const [block] = prepareBlocks({ circuit: addr, sources })
   assert.equal(block.block.name, 'DDR3_ADDR_CMD')
   assert.ok(Math.abs(block.duration - 8e-9) <= Number.EPSILON * 8e-9)
-  const [local] = prepareBlocks(addr, sources, 1)
+  const [local] = prepareBlocks({ circuit: addr, sources, distanceMm: 1 })
   assert.equal(local.settings.copperScope!.lateralDistanceMm, 1)
   assert.deepEqual(local.settings.copperScope!.selectedPcbTraceIds, block.settings.copperScope!.selectedPcbTraceIds)
   assert.equal(local.settings.lanes.length, 24)
   assert.ok(local.settings.copperScope!.pcbTraceIds.length < block.settings.copperScope!.pcbTraceIds.length)
-  for (const distance of [0, -1, NaN, Infinity, 33]) assert.throws(() => prepareBlocks(addr, sources, distance), /scope distance/)
+  for (const distance of [0, -1, NaN, Infinity, 33]) assert.throws(() => prepareBlocks({ circuit: addr, sources, distanceMm: distance }), /scope distance/)
   assert.deepEqual(new Set(block.signals.map(signal => signal.name)), new Set(addrCmdPins.map(([name]) => name)))
   for (const signal of block.signals) {
     assert.ok('source_port_id' in signal.driver)

@@ -16,14 +16,14 @@ const declare=(mutate=()=>{},m=undefined)=>impl=>{
   const {cj,m:base,controls}=fixture()
   const modeling=m?m(base):base
   const out=mutate(cj,controls.run)??cj
-  return impl.generalDeclarations({ circuit: out,geometry: impl.geometry(out,modeling),modeling,controls })
+  return impl.generalDeclarations({ circuit: out, mappings: impl.geometry(out, modeling).mappings, modeling, controls })
 }
 const electrical=(mutate,m=base=>base)=>impl=>{
   const {cj,m:base}=fixture()
   mutate?.(cj)
   const modeling=m(base)
   const g=impl.geometry(cj,modeling)
-  return impl.electricalSources(cj,modeling,impl.circuitNodes(cj,g,modeling))
+  return impl.electricalSources(cj,modeling,impl.circuitNodes({ circuit: cj, mappings: g.mappings, modeling }))
 }
 const square=extra=>cj=>{
   cj.push({type:'simulation_voltage_source',simulation_voltage_source_id:'sq',is_dc_source:false,terminal1_source_port_id:'v0',terminal2_source_port_id:'g0',voltage:3.3,frequency:1e6,wave_shape:'square',...extra})
@@ -114,17 +114,17 @@ test('a channel net split into per-subcircuit records joined by net-only traces 
     return cj
   }
   const {cj,m,g}=fixture()
-  const nodes=circuitNodes(split(cj),g,m)
+  const nodes=circuitNodes({ circuit: split(cj), mappings: g.mappings, modeling: m })
   assert.notEqual(nodes.node('p0'),nodes.node('p2'))
   assert.throws(()=>nodes.node('dq-board'),/channel_net/)
   const fanout=fixture()
   split(fanout.cj).push({type:'source_trace',source_trace_id:'tap',connected_source_port_ids:['p1'],connected_source_net_ids:['dq-board']})
-  assert.throws(()=>circuitNodes(fanout.cj,fanout.g,fanout.m),/channel_fanout/)
+  assert.throws(()=>circuitNodes({ circuit: fanout.cj, mappings: fanout.g.mappings, modeling: fanout.m }),/channel_fanout/)
 })
 
 test('orphan ideal sources fail preflight',()=>{
   const {cj,m,g}=fixture()
   cj.push({type:'source_component',source_component_id:'voltage',name:'ORPHAN'},{type:'source_port',source_port_id:'vspos',source_component_id:'voltage'},{type:'source_port',source_port_id:'vsneg',source_component_id:'voltage'},{type:'simulation_voltage_source',simulation_voltage_source_id:'voltage-source',terminal1_source_port_id:'vspos',terminal2_source_port_id:'vsneg',voltage:3.3,is_dc_source:false})
-  const nodes=circuitNodes(cj,g,m)
+  const nodes=circuitNodes({ circuit: cj, mappings: g.mappings, modeling: m })
   assert.throws(()=>electricalSources(cj,m,nodes),/floating_source.*ORPHAN/)
 })

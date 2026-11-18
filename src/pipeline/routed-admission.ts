@@ -22,7 +22,9 @@ export interface RoutedBlockPlan {
 }
 /** Lower one admitted SI block into the routed stage inputs. */
 function planRoutedBlock(input: RoutedProblem, id: string): RoutedBlockPlan {
-  const block = prepareBlockById(input.circuitJson, input.ibisSources, id, input.scopeDistanceMm ?? 32)
+  const block = prepareBlockById({
+    circuit: input.circuitJson, sources: input.ibisSources, blockId: id, distanceMm: input.scopeDistanceMm ?? 32,
+  })
   const mappings: LaneMapping[] = block.signals.flatMap(signal => signal.receivers.flatMap(receiver => endpointPorts(receiver).map((to, i) => {
     const from = endpointPorts(signal.driver)[i]
     const lane = block.settings.lanes.find(lane => lane.from.sourcePortId === from || lane.to.sourcePortId === from)!

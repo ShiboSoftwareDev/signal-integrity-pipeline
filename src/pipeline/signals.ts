@@ -83,13 +83,18 @@ export function signalBlocks(circuitJson: CircuitJson): SimulationPcbTransientCh
   return blocks
 }
 /** Validate one block and lower its test intent to the private routed declarations. */
-export function prepareBlockById(circuit: CircuitJson, sources: IbisSources, blockId: string, distanceMm: number = 32): PreparedBlock {
+export function prepareBlockById({ circuit, sources, blockId, distanceMm = 32 }: {
+  circuit: CircuitJson
+  sources: IbisSources
+  blockId: string
+  distanceMm?: number
+}): PreparedBlock {
   if (!Number.isFinite(distanceMm) || distanceMm <= 0 || distanceMm > 32) throw new Error('Copper scope distance must be in (0,32] mm')
   const matches = signalBlocks(circuit).filter(block => block.simulation_pcb_transient_channel_simulation_id === blockId)
   if (matches.length !== 1) throw new Error(`Expected exactly one signal-integrity block ${blockId}`)
   const warnings: string[] = []
   try {
-    return prepareBlock(circuit, matches[0], sources, warnings, distanceMm)
+    return prepareBlock({ input: circuit, block: matches[0], sources, warnings, distanceMm })
   } catch (error) {
     throw Object.assign(error as Error, { warnings })
   }
@@ -107,12 +112,24 @@ export function probeEndpoints(signal: SimulationPcbDriverReceiverChannel): Sign
   return signal.receivers
 }
 
+/** Use the explicit block duration when present, in seconds. */
+function blockDurationSeconds(block: SimulationPcbTransientChannelSimulation, signals: SimulationPcbDriverReceiverChannel[]): number {
+  if (block.duration_ms !== undefined) return block.duration_ms / 1000
+  return recordingTime(signals).duration
+}
+
 /** Independent block: model overrides, copper, pin states, references and stimuli. */
-function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSimulation, sources: IbisSources, warnings: string[], distanceMm: number): PreparedBlock {
+function prepareBlock({ input, block, sources, warnings, distanceMm }: {
+  input: CircuitJson
+  block: SimulationPcbTransientChannelSimulation
+  sources: IbisSources
+  warnings: string[]
+  distanceMm: number
+}): PreparedBlock {
   const id = safeId(block.simulation_pcb_transient_channel_simulation_id, 'simulationPcbTransientChannelSimulationId')
   const signals = input.filter(r => r.type === 'simulation_pcb_driver_receiver_channel').filter(r => r.simulation_pcb_transient_channel_simulation_id === id).sort((a, b) => compareNames(a.name, b.name))
   if (!signals.length || new Set(signals.map(s => s.name)).size !== signals.length || new Set(signals.map(s => s.simulation_pcb_driver_receiver_channel_id)).size !== signals.length) throw new Error(`${block.name ?? id}: require distinct named signals`)
-  const duration = block.duration_ms === undefined ? recordingTime(signals).duration : block.duration_ms / 1000
+  const duration = blockDurationSeconds(block, signals)
   const circuit = structuredClone([
     ...input.filter(r => !r.type.startsWith('simulation_') || ['simulation_ibis_model', 'simulation_voltage_source', 'simulation_spice_subcircuit'].includes(r.type)),
     block, ...signals,

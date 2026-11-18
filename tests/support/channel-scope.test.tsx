@@ -31,16 +31,16 @@ function Board({ unrelatedY = 20, neighbour = false }: { unrelatedY?: number; ne
 test('TSX unrelated branched copper cannot reject a selected channel on the full board', { skip: !process.env.IBIS_MODEL_DIR }, async () => {
   const circuit = await renderSignals(<Board />)
   const sources = { 'models/sn74lvc1g04.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`) }
-  const [block] = prepareBlocks(circuit, sources, 1)
+  const [block] = prepareBlocks({ circuit, sources, distanceMm: 1 })
   assert.equal(block.settings.lanes.length, 1)
   assert.equal(block.settings.copperScope?.omitted.traces, 2)
-  const near = prepareBlocks(await renderSignals(<Board neighbour />), sources, 1)[0]
+  const near = prepareBlocks({ circuit: await renderSignals(<Board neighbour />), sources, distanceMm: 1 })[0]
   assert.equal(near.settings.lanes.length, 1, 'only the selected channel is a lane')
   assert.ok(near.settings.copperScope.pcbTraceIds.length > near.settings.copperScope.selectedPcbTraceIds.length, 'the nearby quiet conductor stays in the copper scope')
   const quiet = [...near.pins.values()].find(pin => pin.buffer.type === 'output' && !near.signals.some(signal => 'source_port_id' in signal.driver && signal.driver.source_port_id === pin.port))!
   assert.ok(near.controls[near.block.simulation_pcb_transient_channel_simulation_id].stimuli.some(stimulus => stimulus.source_port_id === quiet.port && stimulus.transmission_pattern.bits === '0'))
   const nearbyBranch = await renderSignals(<Board unrelatedY={.5} />)
-  const branched = prepareBlocks(nearbyBranch, sources, 1)[0]
+  const branched = prepareBlocks({ circuit: nearbyBranch, sources, distanceMm: 1 })[0]
   assert.equal(branched.settings.lanes.length, 1, 'nearby branched copper is a scoped neighbour, not a rejected lane')
   assert.ok(branched.settings.copperScope.pcbTraceIds.length > branched.settings.copperScope.selectedPcbTraceIds.length)
 })

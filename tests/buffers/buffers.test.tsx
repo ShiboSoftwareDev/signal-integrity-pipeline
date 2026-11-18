@@ -14,8 +14,8 @@ test('real vendor packages and optional references survive public preflight; sou
   const bytes = await readFile(`${modelDir}/sn74lvc1g04.ibs`)
   const ibis = { 'models/sn74lvc1g04.ibs': bytes }
   const bindings = admittedBindings(await renderSignals(<Single />), ibis)
-  const declarations = generalDeclarations(bindings.circuitJson, bindings, bindings.modeling, bindings.controls)
-  const admitted = admitBuffers(declarations.models, ibis, {}, rootScope('buffers'))
+  const declarations = generalDeclarations({ circuit: bindings.circuitJson, mappings: bindings.mappings, modeling: bindings.modeling, controls: bindings.controls })
+  const admitted = admitBuffers({ models: declarations.models, ibisSources: ibis, scope: rootScope('buffers') })
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)
   for (const model of compiled[0]) {
     assert.equal(model.sourceEvidence.sourceSha256, sha256(bytes))

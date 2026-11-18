@@ -19,8 +19,14 @@ export async function renderSignals(tree: React.ReactElement, expectedErrors: st
 }
 
 /** Lower every signal-integrity block in board order, as RoutedAdmissionSolver does one block per step. */
-export function prepareBlocks(circuit: CircuitJson, sources: IbisSources, distanceMm?: number): PreparedBlock[] {
-  return signalBlocks(circuit).map(block => prepareBlockById(circuit, sources, block.simulation_pcb_transient_channel_simulation_id, distanceMm))
+export function prepareBlocks({ circuit, sources, distanceMm }: {
+  circuit: CircuitJson
+  sources: IbisSources
+  distanceMm?: number
+}): PreparedBlock[] {
+  return signalBlocks(circuit).map(block => prepareBlockById({
+    circuit, sources, blockId: block.simulation_pcb_transient_channel_simulation_id, distanceMm,
+  }))
 }
 
 /** The first admitted block's bindings, admitted through the public root so IBIS bytes are decoded as in production. */
