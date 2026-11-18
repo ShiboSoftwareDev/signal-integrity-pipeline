@@ -25,7 +25,7 @@ die-buffer primitives. No dependency patch or modified IBIS text is involved.
 - [IBIS 4.1 §6, Rising/Falling Waveform, printed p.55](https://ibis.org/ver4.1/ver4_1.pdf#page=55):
   “A waveform table must include the entire waveform”; its endpoint must be
   “the final DC value of the output after switching”. This specifies acquisition
-  coverage, not a minimum usable UI equal to table duration. The same section
+  coverage, not a minimum usable unit interval equal to table duration. The same section
   requires common input-trigger timing and preserves differing rising/falling
   internal delays. The [7.2 revision, §6.1, pp.105–106](https://ibis.org/ver7.2/ver7_2.pdf#page=105)
   retains these rules, strongly recommends resistive fixtures, and notes that
@@ -107,7 +107,7 @@ flowchart TD
 
 ## Actual selected models, typical corner
 
-800 Mbps gives a 1.25 ns UI. Every AM335x fixture is 50 ohms, tied to either
+800 Mbps gives a 1.25 ns unit interval. Every AM335x fixture is 50 ohms, tied to either
 0 V or 1.5 V, with C_comp = 1.865048 pF. Times below are original sampled times
 in ns, measured from the unchanged input trigger; “settled” means the whole
 remaining suffix, not its first crossing. DQS models 579 and 771 contain the
