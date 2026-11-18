@@ -20,9 +20,23 @@ export interface RouteFieldsInput {
 /** Explicit unmeasured material assumptions; provenance accompanies every output. */
 export const assumedRouteMaterials: RouteMaterials = { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 }
 
+type RouteSectionKey = string
+
+/** Provenance of the mask thickness recorded with the extraction. */
+function maskThicknessSource(input: RouteFieldsInput): 'explicit' | 'preset' | 'assumed' {
+  if (input.materials) return 'explicit'
+  if (input.maskThicknessMm != null) return 'preset'
+  return 'assumed'
+}
+
+/** Rank slices by selected conductors, then by length. */
+function sliceWeight(slice: RouteSlice, selected: ReadonlySet<string>): number {
+  return slice.wires.filter(wire => selected.has(wire.trace)).length * 1e6 + slice.end - slice.start
+}
+
 /** One pair screen or one unique multiconductor BEM solve per synchronous step. */
 export class RouteFieldsSolver extends BaseSolver {
-  private readonly cache = new Map<string, RouteCoefficients>()
+  private readonly cache = new Map<RouteSectionKey, RouteCoefficients>()
   private pairs?: RouteSlice[]
   private groups?: RouteSlice[]
   private readonly slices: ExtractedRouteSlice[] = []
@@ -41,27 +55,35 @@ export class RouteFieldsSolver extends BaseSolver {
     if (!Number.isInteger(input.panels ?? 12) || (input.panels ?? 12) < 2) throw new Error('Field panels must be an integer at least 2')
   }
   /** Canonical relative geometry owns the cache identity, independent of source IDs and stimulus. */
-  private solveSlice(slice: RouteSlice): { key: string; line: RouteCoefficients } {
-    const section = routeCrossSection(this.input.geometry, slice, this.materials)
+  private solveSlice(slice: RouteSlice): { key: RouteSectionKey; line: RouteCoefficients } {
+    const section = routeCrossSection({ geometry: this.input.geometry, slice, materials: this.materials })
     this.current = section
     this.currentSlice = slice
     const key = JSON.stringify(section)
-    let line = this.cache.get(key)
-    if (!line) {
-      const start = performance.now()
-      try {
-        line = snapshot(solveCrossSection(section, { panelsPerEdge: this.input.panels ?? 12 }))
-      } catch (error) {
-        throw Object.assign(error as Error, { routeSection: section, wires: slice.wires, references: slice.references, solved: this.cache.size, solveMilliseconds: this.solveMilliseconds })
-      }
-      this.solveMilliseconds += performance.now() - start
-      this.cache.set(key, line)
-    } else this.stats.cacheHits = (this.stats.cacheHits ?? 0) + 1
+    const cached = this.cache.get(key)
+    if (cached) {
+      this.stats.cacheHits = (this.stats.cacheHits ?? 0) + 1
+      return { key, line: cached }
+    }
+    const start = performance.now()
+    let line: RouteCoefficients
+    try {
+      line = snapshot(solveCrossSection(section, { panelsPerEdge: this.input.panels ?? 12 }))
+    } catch (error) {
+      throw Object.assign(error as Error, { routeSection: section, wires: slice.wires, references: slice.references, solved: this.cache.size, solveMilliseconds: this.solveMilliseconds })
+    }
+    this.solveMilliseconds += performance.now() - start
+    this.cache.set(key, line)
     return { key, line }
   }
-  /** Preserve the original all-pairs-first ordering and routeCoupling's sole union predicate. */
+  /** Advance one work item and record the step timing. */
   override _step(): void {
     const start = performance.now()
+    this.solveNext()
+    this.stats = { ...this.stats, uniqueSolves: this.cache.size, pairs: this.pairIndex, sections: this.groupIndex, solveMilliseconds: this.solveMilliseconds, stepMilliseconds: performance.now() - start }
+  }
+  /** Preserve the all-pairs-first ordering and routeCoupling's sole union predicate. */
+  private solveNext(): void {
     if (!this.pairs) {
       this.pairs = []
       for (const slice of this.input.geometry.slices) {
@@ -71,27 +93,30 @@ export class RouteFieldsSolver extends BaseSolver {
     }
     if (this.pairIndex < this.pairs.length) {
       this.solveSlice(this.pairs[this.pairIndex++])
-    } else {
-      this.groups ??= this.input.geometry.slices.flatMap(slice => routeCoupling(slice, pair => {
-        const line = this.cache.get(JSON.stringify(routeCrossSection(this.input.geometry, pair, this.materials)))
+      return
+    }
+    this.groups ??= this.input.geometry.slices.flatMap(slice => routeCoupling({
+      slice,
+      solve: pair => {
+        const section = routeCrossSection({ geometry: this.input.geometry, slice: pair, materials: this.materials })
+        const line = this.cache.get(JSON.stringify(section))
         if (!line) throw new Error('Pair screen was not solved')
         return line
-      }, this.coupling))
-      if (this.groupIndex < this.groups.length) {
-        const slice = this.groups[this.groupIndex++]
-        this.slices.push({ ...slice, ...this.solveSlice(slice) })
-      }
-      if (this.groupIndex === this.groups.length) {
-        const warnings = [...this.input.geometry.warnings,
-          'Parallel coupling retains connected pairs until both abs(Cij)/sqrt(Cii*Cjj) and abs(Lij)/sqrt(Lii*Ljj) are below 0.005 (0.5%). Pair screening is not an aggregate waveform error bound. Geometry admission follows the recorded copper scope; fields beyond its cap and nonadjacent layers are unbounded omissions. Local solves are capped at 40 conductors and fail explicitly.']
-        const sections = [...this.cache].map(([key, line]) => ({ key, line }))
-        const value = snapshot({ slices: this.slices, sections, coupling: this.coupling, warnings, materials: this.materials })
-        const scope = rootScope('extraction').child(this.input.artifactPrefix)
-        this.output = { value, artifacts: [scope.json('fields.json', { sections, slices: this.slices.map(slice => ({ start: slice.start, end: slice.end, wires: slice.wires.map(wire => wire.id), references: slice.references, key: slice.key })), coupling: this.coupling, warnings, materials: this.materials, maskThicknessSource: this.input.materials ? 'explicit' : this.input.maskThicknessMm != null ? 'preset' : 'assumed', panelsPerEdge: this.input.panels ?? 12 })] }
-        this.solved = true
-      }
+      },
+      records: this.coupling,
+    }))
+    if (this.groupIndex < this.groups.length) {
+      const slice = this.groups[this.groupIndex++]
+      this.slices.push({ ...slice, ...this.solveSlice(slice) })
     }
-    this.stats = { ...this.stats, uniqueSolves: this.cache.size, pairs: this.pairIndex, sections: this.groupIndex, solveMilliseconds: this.solveMilliseconds, stepMilliseconds: performance.now() - start }
+    if (this.groupIndex !== this.groups.length) return
+    const warnings = [...this.input.geometry.warnings,
+      'Parallel coupling retains connected pairs until both abs(Cij)/sqrt(Cii*Cjj) and abs(Lij)/sqrt(Lii*Ljj) are below 0.005 (0.5%). Pair screening is not an aggregate waveform error bound. Geometry admission follows the recorded copper scope; fields beyond its cap and nonadjacent layers are unbounded omissions. Local solves are capped at 40 conductors and fail explicitly.']
+    const sections = [...this.cache].map(([key, line]) => ({ key, line }))
+    const extracted = snapshot({ slices: this.slices, sections, coupling: this.coupling, warnings, materials: this.materials })
+    const scope = rootScope('extraction').child(this.input.artifactPrefix)
+    this.output = { value: extracted, artifacts: [scope.json('fields.json', { sections, slices: this.slices.map(slice => ({ start: slice.start, end: slice.end, wires: slice.wires.map(wire => wire.id), references: slice.references, key: slice.key })), coupling: this.coupling, warnings, materials: this.materials, maskThicknessSource: maskThicknessSource(this.input), panelsPerEdge: this.input.panels ?? 12 })] }
+    this.solved = true
   }
   /** Only a completed extraction can be consumed by the network. */
   override getOutput(): Produced<ExtractedRoutes> {
@@ -104,12 +129,14 @@ export class RouteFieldsSolver extends BaseSolver {
   override visualize(): GraphicsObject {
     const { geometry, circuitJson, scope } = this.input
     const selected = new Set(scope?.selectedPcbTraceIds ?? geometry.wires.map(wire => wire.trace))
-    /** How much of the selected copper a slice shows: its selected conductors, then its length. */
-    const score = (slice: RouteSlice): number => slice.wires.filter(wire => selected.has(wire.trace)).length * 1e6 + slice.end - slice.start
-    const best = this.solved ? [...this.slices].sort((a, b) => score(b) - score(a))[0] : undefined
+    let best: ExtractedRouteSlice | undefined
+    if (this.solved) best = [...this.slices].sort((a, b) => sliceWeight(b, selected) - sliceWeight(a, selected))[0]
     const slice = best ?? this.currentSlice ?? geometry.slices[0]
-    const section = best ? routeCrossSection(geometry, best, this.materials) : (this.current ?? (slice && routeCrossSection(geometry, slice, this.materials)))
+    let section = this.current
+    if (slice && (best || !section)) section = routeCrossSection({ geometry, slice, materials: this.materials })
     const line = best?.line ?? (section && this.cache.get(JSON.stringify(section)))
-    return fieldsDrawing({ geometry, circuitJson, scope, materials: this.materials, solved: this.slices, slice, section, line, error: this.failed ? (this.error ?? 'Field solve failed') : undefined })
+    let error: string | undefined
+    if (this.failed) error = this.error ?? 'Field solve failed'
+    return fieldsDrawing({ geometry, circuitJson, scope, materials: this.materials, solved: this.slices, slice, section, line, error })
   }
 }

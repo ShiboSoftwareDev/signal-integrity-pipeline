@@ -23,7 +23,8 @@ export function causalLossPoles(): LossPole[] {
  * once skin effect dominates. The plain sum R_dc + S z(s) counts both asymptotes at once through the crossover.
  */
 export function skinCrossover(dcResistance: number, skinResistance: number): number {
-  return skinResistance > 0 ? Math.PI * (dcResistance / skinResistance) ** 2 : 0
+  if (!(skinResistance > 0)) return 0
+  return Math.PI * (dcResistance / skinResistance) ** 2
 }
 
 /** Foster stages of z(s + shift) - z(shift): every R || L stage keeps positive elements, so it stays passive. */

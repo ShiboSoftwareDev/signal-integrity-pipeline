@@ -10,13 +10,20 @@ import { multiply, transpose, type Matrix } from './linalg'
 import { channelSpice } from './rlgc'
 import type { ExtractionModeling, ExtractedChannel, ExtractedStage, RefinementCheck } from './types'
 
+/** Only mapped channels emit a pi deck, with any intermediate ports exposed as taps. */
+function extractedSpice({ geometry, extracted, sections }: { geometry: Geometry; extracted: ExtractedStage[]; sections: number }): string {
+  if (!geometry.mappings.length) return ''
+  const taps = geometry.mappings.flatMap((mapping, conductor) => (mapping.intermediatePorts ?? []).map((tap, i) => ({ ...tap, conductor, name: `TAP${conductor}_${i}` })))
+  return channelSpice({ extracted, sections, taps })
+}
+
 /**
  * Per cell, in stage order, under `<scope>/stage-<N>/`:
  *   fasthenry (coarse) -> stage-N/{channel.inp,Zc.mat,fasthenry.*}
  *   fasthenry at modelHz, refinementFilaments (and halved groundMeshMm) -> stage-N/refinement/...
  *   fastercap -> stage-N/{channel.lst,<conductor>.txt,fastercap.*}
  *   checks (convergence, DC R, reciprocity, passivity, capacitance sign, energy) -> stage-N/extraction.json
- * then `channel.cir` = channelSpice(matrices, sections). Native output only: no fallback path.
+ * then `channel.cir` = channelSpice({ extracted, sections, taps }). Native output only: no fallback path.
  * Bytes and paths are identical to the pre-module pipeline (later writes to a path replace earlier
  * ones, as the old shared FileMap did).
  */
@@ -77,10 +84,18 @@ export async function extractChannel(geometry: Geometry, modeling: ExtractionMod
     const L: MatrixCheck=validateMatrix(loopImpedance(selected.L),'L loop',modeling.extraction.reciprocityTolerance)
     validateMatrix(selected.R,'R primitive',modeling.extraction.reciprocityTolerance)
     validateMatrix(selected.L,'L primitive',modeling.extraction.reciprocityTolerance)
-    const capRun=await run(stageScope,{solver:'fastercap',args:['channel.lst','-b',`-a${modeling.extraction.capTolerance}`,...(cell.routedCopper || cell.dielectric?['-ap']:[]),'-e'],files:fc,outputFiles:[]})
+    const capArgs = ['channel.lst', '-b', `-a${modeling.extraction.capTolerance}`]
+    let capacitanceSolverCoordinateUnits: 'mm' | 'm' = 'm'
+    let capacitanceScaleToFarads = 1
+    if (cell.routedCopper || cell.dielectric) {
+      capArgs.push('-ap')
+      capacitanceSolverCoordinateUnits = 'mm'
+      capacitanceScaleToFarads = copperCapacitanceScaleToFarads
+    }
+    capArgs.push('-e')
+    const capRun=await run(stageScope,{solver:'fastercap',args:capArgs,files:fc,outputFiles:[]})
     checkNativeRun(capRun,dir,'fastercap',{subjects:subject,artifacts:capRun.logPaths})
     const cap: {names: string[]; matrix: Matrix}=parseFasterCap(capRun.stdout)
-    const capacitanceScaleToFarads=cell.routedCopper || cell.dielectric?copperCapacitanceScaleToFarads:1
     cap.matrix=cap.matrix.map(row=>row.map(value=>value*capacitanceScaleToFarads))
     const capDiff=[...capRun.stdout.matchAll(/Weighted Frobenius norm of the difference between capacitance \(auto option\):\s*([\deE+.-]+)/g)].at(-1)
     const capConvergence=capDiff?Number(capDiff[1]):null
@@ -95,11 +110,11 @@ export async function extractChannel(geometry: Geometry, modeling: ExtractionMod
     const reducedEnergy=multiply(multiply([v],C.matrix),transpose([v]))[0][0]
     const energyResidual=Math.abs(energy-reducedEnergy)/Math.abs(energy)
     if(!Number.isFinite(energyResidual)||energyResidual>1e-10) fail('reference_energy','Grounded-return energy reconstruction failed',{subjects:subject})
-    const result: ExtractedStage={stage:cell.stage,profile:cell.profile,R:R.matrix,L:L.matrix,C:C.matrix,G:referenceConductance(cap.matrix.map(row=>row.map(()=>0))),units:{R:'ohm',L:'H',C:'F',G:'S'},frequencyHz:selected.frequencyHz,primitiveOrder:cell.conductors.map(c=>c.name),primitiveImpedance:spectrum,modelPrimitiveImpedance:selected,primitiveCapacitance:cap.matrix,checks:{R,L,C,primitiveC,convergence,capConvergence,analyticResistanceOhm:analytic,analyticResistanceRelativeErrors:errors,analyticFrequencyHz:lowest.frequencyHz,analyticLoopResistanceOhm:analyticLoop,dcLoopResidual,energyResidual},conversions:{impedance:'R=Re(Z), L=Im(Z)/(2*pi*f); A=[I;-ones]; loop=A^T primitive A',capacitance:C.convention,capacitanceSolverCoordinateUnits:cell.routedCopper || cell.dielectric?'mm':'m',capacitanceScaleToFarads}}
+    const result: ExtractedStage={stage:cell.stage,profile:cell.profile,R:R.matrix,L:L.matrix,C:C.matrix,G:referenceConductance(cap.matrix.map(row=>row.map(()=>0))),units:{R:'ohm',L:'H',C:'F',G:'S'},frequencyHz:selected.frequencyHz,primitiveOrder:cell.conductors.map(c=>c.name),primitiveImpedance:spectrum,modelPrimitiveImpedance:selected,primitiveCapacitance:cap.matrix,checks:{R,L,C,primitiveC,convergence,capConvergence,analyticResistanceOhm:analytic,analyticResistanceRelativeErrors:errors,analyticFrequencyHz:lowest.frequencyHz,analyticLoopResistanceOhm:analyticLoop,dcLoopResidual,energyResidual},conversions:{impedance:'R=Re(Z), L=Im(Z)/(2*pi*f); A=[I;-ones]; loop=A^T primitive A',capacitance:C.convention,capacitanceSolverCoordinateUnits,capacitanceScaleToFarads}}
     record([stageScope.json('extraction.json',result)])
     extracted.push(result)
   }
-  const spice=geometry.mappings.length ? channelSpice(extracted,modeling.sections,geometry.mappings.flatMap((mapping, conductor) => (mapping.intermediatePorts ?? []).map((tap, i) => ({ ...tap, conductor, name: `TAP${conductor}_${i}` })))) : ''
+  const spice = extractedSpice({ geometry, extracted, sections: modeling.sections })
   record([scope.text('channel.cir',spice)])
   return {value:{matrices:extracted,spice},artifacts:[...files.values()]}
 }

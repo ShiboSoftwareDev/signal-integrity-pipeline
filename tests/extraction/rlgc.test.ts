@@ -45,7 +45,7 @@ const close = (actual: number, expected: number): void => {
 }
 
 test('three-signal SPICE network reconstructs the complete extracted R, L and C matrices', () => {
-  const deck = channelSpice([channel], 1)
+  const deck = channelSpice({ extracted: [channel], sections: 1 })
   assert.match(deck, /^\.subckt CHANNEL IN0 IN1 IN2 OUT0 OUT1 OUT2 REF$/m)
   const reconstructed: ChannelMatrices = { R: [], L: [], C: [] }
   for (const kind of ['R', 'L', 'C'] as const) reconstructed[kind] = Array.from({ length: 3 }, () => [0, 0, 0])
@@ -81,7 +81,7 @@ test('three-signal SPICE network reconstructs the complete extracted R, L and C 
 })
 
 test('sectioning keeps every mutual and joins each signal to its own next stage', () => {
-  const deck = channelSpice([channel, channel], 2)
+  const deck = channelSpice({ extracted: [channel, channel], sections: 2 })
   assert.equal([...deck.matchAll(/^K\d+_/gm)].length, 12)
   assert.equal([...deck.matchAll(/^E\d+_/gm)].length, 12)
   assert.equal([...deck.matchAll(/^CM\d+/gm)].length, 24)
@@ -97,10 +97,10 @@ test('sectioning keeps every mutual and joins each signal to its own next stage'
 
 test('malformed or nonpassive selected matrices fail before emitting a partial channel', () => {
   const differentSize: Matrix = [[1, 0], [0, 1]]
-  assert.throws(() => channelSpice([channel, { ...channel, R: differentSize }], 1), /matrix_dimension/)
-  assert.throws(() => channelSpice([{ ...channel, L: [[1, 2, 0], [2, 1, 0], [0, 0, 1]] }], 1), /passivity/)
-  assert.throws(() => channelSpice([{ ...channel, C: [[3, .1, 0], [.1, 3, 0], [0, 0, 3]] }], 1), /capacitance_sign/)
-  assert.throws(() => channelSpice([], 1), /matrix_dimension/)
+  assert.throws(() => channelSpice({ extracted: [channel, { ...channel, R: differentSize }], sections: 1 }), /matrix_dimension/)
+  assert.throws(() => channelSpice({ extracted: [{ ...channel, L: [[1, 2, 0], [2, 1, 0], [0, 0, 1]] }], sections: 1 }), /passivity/)
+  assert.throws(() => channelSpice({ extracted: [{ ...channel, C: [[3, .1, 0], [.1, 3, 0], [0, 0, 3]] }], sections: 1 }), /capacitance_sign/)
+  assert.throws(() => channelSpice({ extracted: [], sections: 1 }), /matrix_dimension/)
 })
 
 test('native lossless-limit line preserves analytic delay, impedance and section/stage invariance', { skip: !process.env.NGSPICE_BIN }, async () => {
@@ -117,7 +117,7 @@ test('native lossless-limit line preserves analytic delay, impedance and section
       R: [[line.R[0][0] / stages]], L: [[line.L[0][0] / stages]], C: [[line.C[0][0] / stages]],
     }))
     const deck = ['Matched line with a nonzero reference', 'VREF ref 0 1.7', 'V1 source ref AC 1', 'RS source near 50', 'RL far ref 50',
-      channelSpice(matrices, sections), 'XCHAN near far ref CHANNEL', '.control', 'set wr_singlescale', 'set wr_vecnames', 'set numdgt=17',
+      channelSpice({ extracted: matrices, sections }), 'XCHAN near far ref CHANNEL', '.control', 'set wr_singlescale', 'set wr_vecnames', 'set numdgt=17',
       `ac lin 1 ${frequency} ${frequency}`, 'wrdata line.dat v(near,ref) v(far,ref)', 'quit', '.endc', '.end'].join('\n')
     const output = await solve({ solver: 'ngspice', files: { 'line.cir': deck }, args: ['-n', '-b', 'line.cir'], outputFiles: ['line.dat'] })
     const values = output.files['line.dat'].trim().split('\n')[1].trim().split(/\s+/).map(Number)
@@ -137,7 +137,7 @@ test('native lossless-limit line preserves analytic delay, impedance and section
 })
 
 test('internal receiver taps split uniform pi cells at their physical position', () => {
-  const deck = channelSpice([{ R: [[10]], L: [[1e-8]], C: [[1e-12]] }], 2, [{ conductor: 0, fraction: .9, name: 'RX' }])
+  const deck = channelSpice({ extracted: [{ R: [[10]], L: [[1e-8]], C: [[1e-12]] }], sections: 2, taps: [{ conductor: 0, fraction: .9, name: 'RX' }] })
   assert.match(deck, /\.subckt CHANNEL IN0 OUT0 RX REF/)
   assert.match(deck, /L1_0 R1_0 RX 4e-9/)
   assert.match(deck, /VS2_0 RX S2_0 0/)
@@ -146,6 +146,6 @@ test('internal receiver taps split uniform pi cells at their physical position',
 
 test('invalid internal taps cannot create negative pi sections or extra SPICE terminals', () => {
   const matrices = [{ R: [[1]], L: [[1e-9]], C: [[1e-12]] }]
-  for (const fraction of [0, 1, -1, NaN]) assert.throws(() => channelSpice(matrices, 2, [{ conductor: 0, fraction, name: 'RX' }]), /Internal taps/)
-  assert.throws(() => channelSpice(matrices, 2, [{ conductor: 0, fraction: .5, name: 'RX REF' }]), /Internal taps/)
+  for (const fraction of [0, 1, -1, NaN]) assert.throws(() => channelSpice({ extracted: matrices, sections: 2, taps: [{ conductor: 0, fraction, name: 'RX' }] }), /Internal taps/)
+  assert.throws(() => channelSpice({ extracted: matrices, sections: 2, taps: [{ conductor: 0, fraction: .5, name: 'RX REF' }] }), /Internal taps/)
 })

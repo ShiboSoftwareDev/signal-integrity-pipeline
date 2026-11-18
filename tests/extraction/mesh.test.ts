@@ -84,7 +84,7 @@ test('adaptive ground mesh preserves the cutout and resolves connected finite co
   const { circuit, modeling } = groundPlaneFixture()
   const copper = geometryFromCircuitJson(circuit, modeling).cells[0].routedCopper!
   const contacts = copper.connections.map(p => ({ point: [p.terminals[1][0], p.terminals[1][1]] as [number, number], radius: p.contactRadiusMm! }))
-  const mesh = groundMesh(copper.pours[0], modeling.extraction.groundMeshMm!, contacts, 2, copper.signals)
+  const mesh = groundMesh({ pour: copper.pours[0], meshMm: modeling.extraction.groundMeshMm!, contacts, paths: copper.signals })
   const parents = mesh.points.map((_, i) => i)
   /** Union-find root of a mesh point, used to check all contacts are connected. */
   const root = (i: number): number => parents[i] === i ? i : (parents[i] = root(parents[i]))
@@ -105,7 +105,7 @@ test('adaptive ground mesh preserves the cutout and resolves connected finite co
       assert.ok(Math.hypot(mesh.points[id][0] - contacts[i].point[0], mesh.points[id][1] - contacts[i].point[1]) <= contacts[i].radius)
     }
   }
-  assert.throws(() => groundMesh(copper.pours[0], .5, [{ point: [5, 0], radius: .1 }]), /ground_mesh/)
+  assert.throws(() => groundMesh({ pour: copper.pours[0], meshMm: .5, contacts: [{ point: [5, 0], radius: .1 }] }), /ground_mesh/)
 })
 
 test('both native decks use ground polygon cutouts and original trace coordinates', () => {

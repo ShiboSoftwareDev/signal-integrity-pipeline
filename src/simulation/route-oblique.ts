@@ -23,7 +23,7 @@ export function routeOblique(geometry: SectionGeometry, extracted: ExtractedRout
     if (a.source === b.source || (!scope.selectedPcbTraceIds.includes(a.trace) && !scope.selectedPcbTraceIds.includes(b.trace))) continue
     const sine = Math.abs(a.u[0] * b.u[1] - a.u[1] * b.u[0])
     if (sine < 1e-6) continue
-    const near = closestRoutePoints(a.a, a.b, b.a, b.b)
+    const near = closestRoutePoints({ first: a, second: b })
     if (near.distance - (a.width + b.width) / 2 > scope.lateralDistanceMm) continue
     const layers = geometry.stack.copperLayers
     const la = layers.findIndex(layer => layer.name === a.layer)
@@ -37,7 +37,7 @@ export function routeOblique(geometry: SectionGeometry, extracted: ExtractedRout
       continue
     }
     const synthetic = { ...slice, wires: [{ ...a, transverse: 0 }, { ...b, transverse: near.distance }] }
-    const section = routeCrossSection(geometry, synthetic, materials)
+    const section = routeCrossSection({ geometry, slice: synthetic, materials })
     if (section.conductors.some(conductor => section.planes.some(plane => plane.zMm >= conductor.zMm - 1e-9 && plane.zMm <= conductor.zMm + conductor.thicknessMm + 1e-9))) {
       records.push({ wires: [a.id, b.id], policy: 'intervening local reference shields oblique surrogate; finite plane-edge/aperture fringing omitted', references: slice.references, distanceMm: near.distance })
       continue

@@ -22,7 +22,7 @@ test('native three-signal channel obeys the complete R + j*w*L impedance matrix 
   const voltage=[1,2,3]
   const frequency=1e8
   // Independent AC columns: grounded outputs reveal series Z; open outputs reveal shunt C.
-  const deck=['Matrix regression',channelSpice([{R,L,C}],1)]
+  const deck=['Matrix regression',channelSpice({extracted:[{R,L,C}],sections:1})]
   for(let i=0;i<3;i++) deck.push(`IR${i} 0 in${i} AC ${currents[i]}`,`VC${i} c${i} 0 AC ${voltage[i]}`)
   deck.push('XR in0 in1 in2 0 0 0 0 CHANNEL','XC c0 c1 c2 open0 open1 open2 0 CHANNEL','.control','set wr_singlescale','set wr_vecnames',`ac lin 1 ${frequency} ${frequency}`,'wrdata result.dat v(in0) v(in1) v(in2) i(VC0) i(VC1) i(VC2)','quit','.endc','.end')
   await writeFile(join(dir,'matrix.cir'),deck.join('\n')+'\n')

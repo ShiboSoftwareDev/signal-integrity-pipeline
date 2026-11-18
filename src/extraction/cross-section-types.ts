@@ -75,3 +75,11 @@ export interface SectionRegion {
   lowerConductivity: number
   upperConductivity: number
 }
+
+/** Discretize one region with or without its dielectric layers. */
+export interface SectionMeshInput {
+  region: SectionRegion
+  count: number
+  extent: number
+  vacuum?: boolean
+}

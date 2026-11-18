@@ -43,7 +43,7 @@ test('cross-section mesh preserves references, rejects invalid geometry and coal
   const geometry = segmentRoutes(circuit, channelCopperScope({ circuit, selected, reference: connectedSourceIds(circuit, ground.source_net_id) }))
   const slice = geometry.slices.find(slice => slice.wires.length === 2 && slice.wires.every(wire => wire.u[1] === 1))!
   assert.ok(slice)
-  const section = routeCrossSection(geometry, slice, { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 })
+  const section = routeCrossSection({ geometry, slice, materials: { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 } })
   const line = solveCrossSection(section)
   const reflected = solveCrossSection({ ...section, conductors: section.conductors.map(conductor => ({ ...conductor, xMm: -conductor.xMm })) })
   for (const kind of ['C', 'C0', 'L'] as const) for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) assert.ok(Math.abs(line[kind][i][j] / reflected[kind][i][j] - 1) < 1e-7, `${kind} respects physical reflection`)

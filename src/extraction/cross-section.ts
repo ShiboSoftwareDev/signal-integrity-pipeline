@@ -15,7 +15,7 @@ export function solveSectionCapacitance(section: CrossSection, options: Pick<Cro
   if (!Number.isInteger(count) || count < 6 || !Number.isFinite(extent) || extent < 4) fail('mesh_convergence', 'Use >=6 panels per edge and interface extent >=4')
   const C = section.conductors.map(() => section.conductors.map(() => 0))
   for (const { region, indices } of sectionRegions(section)) {
-    const field = sectionField(region, count, extent, false)
+    const field = sectionField({ region, count, extent })
     for (const [i, ii] of indices.entries()) for (const [j, jj] of indices.entries()) C[ii][jj] = field.C[i][j]
   }
   sectionPassive(C, true)
@@ -30,13 +30,42 @@ function inductance(C0: Matrix): Matrix {
 /** Recede every conducting wall (or only the signal conductors' walls) away from the field, weighted by its surface
  * resistivity. Vacuum is essential: moving a wall must not change the electrical dielectric geometry.
  */
-function recede(region: SectionRegion, distance: number, planes: boolean = true): SectionRegion {
-  const lower = planes ? distance * Math.sqrt(copperConductivity / region.lowerConductivity) : 0
-  const upper = planes ? distance * Math.sqrt(copperConductivity / region.upperConductivity) : 0
-  return { ...region, dielectrics: [], height: region.height ? region.height + lower + upper : 0, conductors: region.conductors.map(c => {
+function recede({ region, distance, fixedPlanes = false }: { region: SectionRegion; distance: number; fixedPlanes?: boolean }): SectionRegion {
+  let lower = 0
+  let upper = 0
+  if (!fixedPlanes) {
+    lower = distance * Math.sqrt(copperConductivity / region.lowerConductivity)
+    upper = distance * Math.sqrt(copperConductivity / region.upperConductivity)
+  }
+  let height = 0
+  if (region.height) height = region.height + lower + upper
+  return { ...region, dielectrics: [], height, conductors: region.conductors.map(c => {
     const shift = distance * Math.sqrt(copperConductivity / (c.conductivitySm ?? copperConductivity))
     return { ...c, widthMm: c.widthMm - 2 * shift, thicknessMm: c.thicknessMm - 2 * shift, zMm: c.zMm + shift + lower }
   }) }
+}
+
+/** Zero matrix in input conductor order. */
+function zeroMatrix(size: number): Matrix {
+  return Array.from({ length: size }, () => Array(size).fill(0))
+}
+
+/** Bound wall recession by trace dimensions, dielectric gaps and surface resistivity. */
+function recessionStep(region: SectionRegion, fraction: number): number {
+  const gaps = region.conductors.flatMap((a, i) => region.conductors.slice(i + 1).map(b => Math.hypot(Math.max(0, Math.abs(a.xMm - b.xMm) - (a.widthMm + b.widthMm) / 2), Math.max(0, a.zMm - b.zMm - b.thicknessMm, b.zMm - a.zMm - a.thicknessMm))))
+  const conductorSpans = region.conductors.flatMap(c => {
+    const spans = [c.widthMm, c.thicknessMm, c.zMm]
+    if (region.height) spans.push(region.height - c.zMm - c.thicknessMm)
+    return spans
+  })
+  const scale = Math.min(...conductorSpans.map(span => span / 2), ...gaps.map(gap => gap / 4))
+  const weight = Math.max(1, Math.sqrt(copperConductivity / region.lowerConductivity), Math.sqrt(copperConductivity / region.upperConductivity), ...region.conductors.map(c => Math.sqrt(copperConductivity / (c.conductivitySm ?? copperConductivity))))
+  return fraction * scale / weight
+}
+
+/** Wheeler resistance per sqrt(Hz) from inductances with walls receded by +step and -step. */
+function wheeler({ plus, minus, step }: { plus: number; minus: number; step: number }): number {
+  return (plus - minus) / (2 * step / 1000) * Math.sqrt(Math.PI * sectionMu0 / copperConductivity) / sectionMu0
 }
 
 /** Cheap quasi-TEM extraction with infinite solid references, layered dielectric/mask boundaries
@@ -50,39 +79,33 @@ export function solveCrossSection(section: CrossSection, options: CrossSectionOp
   const fraction = options.recessionFraction ?? .01
   if (!Number.isInteger(count) || count < 6 || !Number.isFinite(extent) || extent < 4 || !Number.isFinite(fraction) || fraction <= 0 || fraction > .1) fail('mesh_convergence', 'Use >=6 panels per edge, interface extent >=4 and recession fraction in (0, .1]')
   const size = section.conductors.length
-  /** Zero matrix in input conductor order. */
-  const zero = (): Matrix => Array.from({ length: size }, () => Array(size).fill(0))
-  const C = zero()
-  const C0 = zero()
-  const L = zero()
-  const dielectricLoss = zero()
-  const skinResistance = zero()
-  const stripSkinResistance = zero()
-  const dcResistance = zero()
+  const C = zeroMatrix(size)
+  const C0 = zeroMatrix(size)
+  const L = zeroMatrix(size)
+  const dielectricLoss = zeroMatrix(size)
+  const skinResistance = zeroMatrix(size)
+  const stripSkinResistance = zeroMatrix(size)
+  const dcResistance = zeroMatrix(size)
   let panels = 0
   let residual = 0
   let recessionMm = Infinity
   for (const { region, indices } of sectionRegions(section)) {
-    const vacuum = sectionField(region, count, extent, true)
-    const field = sectionField(region, count, extent, false)
+    const mesh = { region, count, extent }
+    const vacuum = sectionField({ ...mesh, vacuum: true })
+    const field = sectionField(mesh)
     const external = inductance(vacuum.C)
-    const gaps = region.conductors.flatMap((a, i) => region.conductors.slice(i + 1).map(b => Math.hypot(Math.max(0, Math.abs(a.xMm - b.xMm) - (a.widthMm + b.widthMm) / 2), Math.max(0, a.zMm - b.zMm - b.thicknessMm, b.zMm - a.zMm - a.thicknessMm))))
-    const scale = Math.min(...region.conductors.flatMap(c => [c.widthMm, c.thicknessMm, c.zMm, ...(region.height ? [region.height - c.zMm - c.thicknessMm] : [])]).map(value => value / 2), ...gaps.map(gap => gap / 4))
-    const weight = Math.max(1, Math.sqrt(copperConductivity / region.lowerConductivity), Math.sqrt(copperConductivity / region.upperConductivity), ...region.conductors.map(c => Math.sqrt(copperConductivity / (c.conductivitySm ?? copperConductivity))))
-    const step = fraction * scale / weight
-    const plus = inductance(sectionField(recede(region, step), count, extent, true).C)
-    const minus = inductance(sectionField(recede(region, -step), count, extent, true).C)
-    const stripPlus = inductance(sectionField(recede(region, step, false), count, extent, true).C)
-    const stripMinus = inductance(sectionField(recede(region, -step, false), count, extent, true).C)
-    /** Wheeler resistance per sqrt(Hz) from inductances with the walls receded by +step and -step. */
-    const wheeler = (a: Matrix, b: Matrix, i: number, j: number): number => (a[i][j] - b[i][j]) / (2 * step / 1000) * Math.sqrt(Math.PI * sectionMu0 / copperConductivity) / sectionMu0
+    const step = recessionStep(region, fraction)
+    const plus = inductance(sectionField({ region: recede({ region, distance: step }), count, extent, vacuum: true }).C)
+    const minus = inductance(sectionField({ region: recede({ region, distance: -step }), count, extent, vacuum: true }).C)
+    const stripPlus = inductance(sectionField({ region: recede({ region, distance: step, fixedPlanes: true }), count, extent, vacuum: true }).C)
+    const stripMinus = inductance(sectionField({ region: recede({ region, distance: -step, fixedPlanes: true }), count, extent, vacuum: true }).C)
     for (const [i, ii] of indices.entries()) for (const [j, jj] of indices.entries()) {
       C[ii][jj] = field.C[i][j]
       C0[ii][jj] = vacuum.C[i][j]
       L[ii][jj] = external[i][j]
       dielectricLoss[ii][jj] = field.loss[i][j]
-      skinResistance[ii][jj] = wheeler(plus, minus, i, j)
-      stripSkinResistance[ii][jj] = wheeler(stripPlus, stripMinus, i, j)
+      skinResistance[ii][jj] = wheeler({ plus: plus[i][j], minus: minus[i][j], step })
+      stripSkinResistance[ii][jj] = wheeler({ plus: stripPlus[i][j], minus: stripMinus[i][j], step })
     }
     panels += field.panels
     residual = Math.max(residual, field.residual, vacuum.residual)

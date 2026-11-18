@@ -52,7 +52,8 @@ export function sectionReciprocity(matrix: Matrix): number {
     residual = Math.max(residual, Math.abs(matrix[i][j] - matrix[j][i]))
     largest = Math.max(largest, Math.abs(matrix[i][j]))
   }
-  return largest ? residual / largest : 0
+  if (!largest) return 0
+  return residual / largest
 }
 
 /** Reject nonphysical matrices before frequency interpolation; permit exact lossless null spaces. */
@@ -63,14 +64,17 @@ export function sectionPassive(matrix: Matrix, strict: boolean = false): void {
   const tolerance = largest * 1e-9
   const factor = matrix.map(row => row.map(() => 0))
   for (let i = 0; i < size; i++) for (let j = 0; j <= i; j++) {
-    let value = matrix[i][j]
-    for (let k = 0; k < j; k++) value -= factor[i][k] * factor[j][k]
+    let coefficient = matrix[i][j]
+    for (let k = 0; k < j; k++) coefficient -= factor[i][k] * factor[j][k]
     if (i === j) {
-      if (value < -tolerance || (strict && value <= tolerance)) fail('passivity', 'Cross-section matrix has nonpositive field energy; refine the mesh')
-      factor[i][j] = Math.sqrt(Math.max(0, value))
-    } else {
-      if (!factor[j][j] && Math.abs(value) > tolerance) fail('passivity', 'Cross-section loss matrix has an invalid null space')
-      factor[i][j] = factor[j][j] ? value / factor[j][j] : 0
+      if (coefficient < -tolerance || (strict && coefficient <= tolerance)) fail('passivity', 'Cross-section matrix has nonpositive field energy; refine the mesh')
+      factor[i][j] = Math.sqrt(Math.max(0, coefficient))
+      continue
     }
+    if (factor[j][j]) {
+      factor[i][j] = coefficient / factor[j][j]
+      continue
+    }
+    if (Math.abs(coefficient) > tolerance) fail('passivity', 'Cross-section loss matrix has an invalid null space')
   }
 }

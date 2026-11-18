@@ -14,7 +14,7 @@ export interface RouteMaterials { maskMm: number; maskEr: number; maskLoss: numb
 export type RouteCoefficients = CrossSectionResult
 
 /** Material slabs fill absent copper layers with the nearest laminate (rather than fictitious air gaps). */
-export function routeCrossSection(geometry: SectionGeometry, slice: RouteSlice, materials: RouteMaterials): CrossSection {
+export function routeCrossSection({ geometry, slice, materials }: { geometry: SectionGeometry; slice: RouteSlice; materials: RouteMaterials }): CrossSection {
   const layers = geometry.stack.copperLayers
   const bottom = Math.min(...layers.map(layer => layer.zMinMm))
   const top = Math.max(...layers.map(layer => layer.zMaxMm))
@@ -27,10 +27,12 @@ export function routeCrossSection(geometry: SectionGeometry, slice: RouteSlice, 
   // Planar mask occupies spaces between outer traces as well as the assumed overcoat.
   const topCopper = layers.find(layer => layer.name === 'top')!
   const bottomCopper = layers.find(layer => layer.name === 'bottom')!
-  const referenceLow = Math.min(...slice.references.map(plane => plane.z))
-  const referenceHigh = Math.max(...slice.references.map(plane => plane.z))
-  const lower = slice.references.length > 1 ? referenceLow : -Infinity
-  const upper = slice.references.length > 1 ? referenceHigh : Infinity
+  let lower = -Infinity
+  let upper = Infinity
+  if (slice.references.length > 1) {
+    lower = Math.min(...slice.references.map(plane => plane.z))
+    upper = Math.max(...slice.references.map(plane => plane.z))
+  }
   const clipped = dielectrics.filter(layer => layer.zMm >= lower - 1e-9 && layer.zMm + layer.thicknessMm <= upper + 1e-9)
   if (slice.wires.some(wire => wire.layer === 'top')) {
     const first = clipped.findIndex(layer => layer.zMm >= topCopper.zMinMm - 1e-9)
@@ -49,15 +51,21 @@ export function routeCrossSection(geometry: SectionGeometry, slice: RouteSlice, 
   }), planes: slice.references.map(plane => ({ zMm: plane.z })), dielectrics: clipped }
 }
 
+interface RouteEndpoints { a: RouteXY; b: RouteXY }
+
 /** Closest points on two finite centre-lines, used only for the explicit oblique correction. */
-export function closestRoutePoints(a: RouteXY, b: RouteXY, c: RouteXY, d: RouteXY): { first: RouteXY; second: RouteXY; distance: number } {
+export function closestRoutePoints({ first: { a, b }, second: { a: c, b: d } }: { first: RouteEndpoints; second: RouteEndpoints }): { first: RouteXY; second: RouteXY; distance: number } {
   const ux = b[0] - a[0]
   const uy = b[1] - a[1]
   const vx = d[0] - c[0]
   const vy = d[1] - c[1]
   const denominator = ux * vy - uy * vx
-  const t = denominator ? ((c[0] - a[0]) * vy - (c[1] - a[1]) * vx) / denominator : -1
-  const s = denominator ? ((c[0] - a[0]) * uy - (c[1] - a[1]) * ux) / denominator : -1
+  let t = -1
+  let s = -1
+  if (denominator) {
+    t = ((c[0] - a[0]) * vy - (c[1] - a[1]) * vx) / denominator
+    s = ((c[0] - a[0]) * uy - (c[1] - a[1]) * ux) / denominator
+  }
   if (t >= 0 && t <= 1 && s >= 0 && s <= 1) {
     const point: RouteXY = [a[0] + t * ux, a[1] + t * uy]
     return { first: point, second: point, distance: 0 }
@@ -68,7 +76,9 @@ export function closestRoutePoints(a: RouteXY, b: RouteXY, c: RouteXY, d: RouteX
     const dy = end[1] - start[1]
     const fraction = Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / (dx * dx + dy * dy)))
     const near: RouteXY = [start[0] + fraction * dx, start[1] + fraction * dy]
-    return { first: reverse ? near : point as RouteXY, second: reverse ? point as RouteXY : near, distance: Math.hypot(point[0] - near[0], point[1] - near[1]) }
+    const distance = Math.hypot(point[0] - near[0], point[1] - near[1])
+    if (reverse) return { first: near, second: point, distance }
+    return { first: point, second: near, distance }
   }).sort((a, b) => a.distance - b.distance)[0]
 }
 

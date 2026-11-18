@@ -169,7 +169,7 @@ export class RouteNetworkSolver extends BaseSolver {
     for (const record of routeDisplayItems(this.obliqueRecords, 120)) {
       const pair = Array.isArray(record.wires) ? (record.wires as number[]).map(id => wires.get(id)) : []
       if (pair.length !== 2 || !pair[0] || !pair[1]) continue
-      const near = closestRoutePoints(pair[0].a, pair[0].b, pair[1].a, pair[1].b)
+      const near = closestRoutePoints({ first: pair[0], second: pair[1] })
       drawing.lines!.push({ points: [near.first, near.second].map(([x, y]) => ({ x, y })), strokeColor: routeTones.coupling, strokeWidth: view.unit * 0.3 })
     }
     const transitions = this.output?.value.evidence.transitions

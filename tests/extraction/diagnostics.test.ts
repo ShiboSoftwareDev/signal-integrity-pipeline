@@ -64,6 +64,6 @@ test('nonfinite grounded energy reconstruction is rejected', async () => {
 
 test('channel.cir needs 1..128 sections; a hole outside its outline is not a meshable copper ring', () => {
   const stage = { R: [[1, 0], [0, 1]], L: [[1, 0], [0, 1]], C: [[1, 0], [0, 1]] }
-  for (const sections of [0, 129, 1.5]) rejects(() => channelSpice([stage], sections), 'sections', /sections must be an integer 1\.\.128/)
+  for (const sections of [0, 129, 1.5]) rejects(() => channelSpice({ extracted: [stage], sections }), 'sections', /sections must be an integer 1\.\.128/)
   rejects(() => meshPolygon([[[0, 0], [2, 0], [2, 2], [0, 2]], [[2, 2], [3, 2], [3, 3]]], () => 1), 'ground_geometry', /Copper ring edge is missing from its triangulation/)
 })

@@ -12,7 +12,12 @@ const num = (value: number): string => Number(value.toPrecision(12)).toString()
 /** Coupled pi sections; optional physical terminal corrections join the first/last series L.
  * End shunt C stays at the electrical endpoint; refine sections to bound this lumping error.
  */
-export function channelSpice(extracted: readonly StageMatrices[], sections: number, taps: { conductor: number; fraction: number; name: string }[] = [], terminals: { input?: Matrix; output?: Matrix } = {}): string {
+export function channelSpice({ extracted, sections, taps = [], terminals = {} }: {
+  extracted: readonly StageMatrices[]
+  sections: number
+  taps?: { conductor: number; fraction: number; name: string }[]
+  terminals?: { input?: Matrix; output?: Matrix }
+}): string {
   if (!Number.isInteger(sections) || sections < 1 || sections > 128) fail('sections', 'sections must be an integer 1..128')
   if (!extracted.length || !extracted[0].R.length) fail('matrix_dimension', 'At least one extracted channel stage is required')
   const n = extracted[0].R.length
@@ -42,9 +47,19 @@ export function channelSpice(extracted: readonly StageMatrices[], sections: numb
     const C: Matrix = scale(e.C, cuts[section + 1] - cuts[section])
     const first = g === 0
     const last = stage === extracted.length - 1 && section === cuts.length - 2
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) L[i][j] += (first ? terminals.input?.[i][j] ?? 0 : 0) + (last ? terminals.output?.[i][j] ?? 0 : 0)
-    const before = inputs.map((input, i) => first ? input : taps.find(tap => tap.conductor === i && tap.fraction === cuts[section])?.name ?? `N${g}_${i}`)
-    const after = outputs.map((output, i) => last ? output : taps.find(tap => tap.conductor === i && tap.fraction === cuts[section + 1])?.name ?? `N${g + 1}_${i}`)
+    let inputL: Matrix | undefined
+    let outputL: Matrix | undefined
+    if (first) inputL = terminals.input
+    if (last) outputL = terminals.output
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) L[i][j] += (inputL?.[i][j] ?? 0) + (outputL?.[i][j] ?? 0)
+    const before = inputs.map((input, i) => {
+      if (first) return input
+      return taps.find(tap => tap.conductor === i && tap.fraction === cuts[section])?.name ?? `N${g}_${i}`
+    })
+    const after = outputs.map((output, i) => {
+      if (last) return output
+      return taps.find(tap => tap.conductor === i && tap.fraction === cuts[section + 1])?.name ?? `N${g + 1}_${i}`
+    })
     for (let i = 0; i < n; i++) {
       lines.push(`VS${g}_${i} ${before[i]} S${g}_${i} 0`, `R${g}_${i} S${g}_${i} R${g}_${i} ${num(R[i][i])}`)
       // The shared return contributes cross resistance R_ij * I_j as well as mutual inductance.

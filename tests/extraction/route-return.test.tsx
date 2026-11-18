@@ -19,11 +19,11 @@ test('TSX return extraction completes the primitive energy square without native
   const body = R.map((row, i) => row.map((value, j) => `${value} ${L[i][j] * 2 * Math.PI * settings.extraction.modelHz}j`).join(' ')).join('\n')
   let calls = 0
   for (const model of ['closure', 'series'] as const) {
-    const result = await extractRouteReturn(geometry, settings, rootScope('extraction'), { progress: () => {}, runSolver: async request => {
+    const result = await extractRouteReturn({ geometry, modeling: settings, scope: rootScope('extraction'), model }, { progress: () => {}, runSolver: async request => {
       calls++
       assert.equal(request.solver, 'fasthenry')
       return { stdout: '', stderr: '', files: { 'Zc.mat': `${header}\nImpedance matrix for frequency = ${settings.extraction.modelHz} 4 x 4\n${body}` } }
-    } }, model)
+    } })
     assert.equal(result.value.model, model)
     assert.equal(result.value.traces.length, 3)
     for (const [kind, matrix] of [['R', R], ['L', L]] as const) {
