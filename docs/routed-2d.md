@@ -1,7 +1,7 @@
 # Routed 2D coupled channel
 
 This is an **experimental, unqualified path**, not an accepted DDR3 simulation.
-`RouteNetworkSolver` compiles physical routed copper and the existing IBIS
+`RoutedPipelineSolver` compiles physical routed copper and the existing IBIS
 package/switching models into a candidate ngspice deck, using the
 [2D cross-section solver](2d-cross-section.md) for per-unit-length RLGC. No vendor
 models, board JSON, generated netlists or plots are committed.
@@ -187,3 +187,23 @@ the first/last series section; omitting them preserves the existing channel.
 Ordinary BGA pads do not specify a port-to-plane current path and receive no
 inferred vertical post. Real-board vias keep the transition models above, so
 the same transition is never added twice.
+
+
+## Routed DDR3 execution
+
+The addr/cmd scope reaches 1,835 route cells. The former 1,024-cell guard rejected
+it before a native deck could be assembled. Sparse energy rows now retain only
+coefficients actually integrated from shared physical slices. Emission visits
+these entries in the original dense column order, with the original absolute
+thresholds: no additional relative-coupling approximation is introduced. For a
+fixed number of conductors per slice, storage and emitted terms follow cell count
+rather than its square.
+
+The unmodified two-trace deck pins remain byte-identical. The small energy tests
+cover signed mutual L, Maxwell row sums and Foster terms; the TSX ladder test
+exceeds the old cell cap. Oblique electrostatic corrections use the identical
+dielectric BEM solve directly, omitting unused vacuum, magnetic and recession
+solves; one- and two-plane coefficient equality is tested exactly.
+
+Use `bun scripts/run-routed-ddr3.tsx --addr-cmd` with ignored local vendor models
+and `models/ddr3-board.json` (or `SI_DDR3_BOARD`).

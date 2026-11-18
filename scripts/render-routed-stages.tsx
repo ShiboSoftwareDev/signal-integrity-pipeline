@@ -11,6 +11,7 @@ import { sha256 } from '../src/kernel'
 import { routeTones, type CircuitJson } from '../src/board'
 import { boardPictureSvg } from '../src/board/board-picture'
 import { TwoTraceBoard } from '../examples/routed/two-trace-board'
+import { withDdr3Signals } from '../examples/routed/ddr3-signals'
 
 // All vendor assets, physical board JSON, decks and renders remain outside Git.
 const output = resolve(process.env.SI_STAGE_VISUALS_DIR ?? '.cache/stage-visuals')
@@ -99,4 +100,15 @@ core.add(<TwoTraceBoard />)
 await core.renderUntilSettled()
 await stages('two-trace', { circuitJson: core.getCircuitJson() as CircuitJson, ibisSources: { 'models/sn74lvc1g04.ibs': twoSource }, scopeDistanceMm: 1 })
 
+if (process.env.SI_DDR3_BOARD) {
+  const physical: CircuitJson = JSON.parse(await readFile(process.env.SI_DDR3_BOARD, 'utf8'))
+  const ibisSources = Object.fromEntries(
+    await Promise.all(['sprm552c.ibs', 'W631GG6MB-12.ibs'].map(async (name) => [`models/${name}`, await readFile(join(models, name), 'utf8')])),
+  )
+  const circuitJson = await withDdr3Signals(physical, { block: 'DDR3_ADDR_CMD' })
+  await stages('ddr3-addr-cmd', { circuitJson, ibisSources, scopeDistanceMm: 1 })
+} else {
+  console.log('DDR3 board JSON unavailable: set SI_DDR3_BOARD and local sprm552c.ibs / W631GG6MB-12.ibs to render its 24-net addr/cmd scope')
+  manifest.ddr3 = 'unavailable: SI_DDR3_BOARD not supplied'
+}
 await writeFile(join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
