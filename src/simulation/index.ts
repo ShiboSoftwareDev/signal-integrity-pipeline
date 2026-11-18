@@ -13,4 +13,5 @@ export { namespaceSpice, electricalSources } from './netlist'
 export { transmittedBits } from './stimulus'
 
 
-export type { RoutedCompileOptions, RouteBindingsInput } from './routed-types'
+export { RouteBindingsSolver } from './route-bindings'
+export type { RoutedCompileOptions, RouteBindingsInput, RoutedBindings } from './routed-types'

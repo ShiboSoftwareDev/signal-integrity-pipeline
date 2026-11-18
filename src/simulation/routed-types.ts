@@ -1,7 +1,7 @@
 import type { CircuitJson, CopperScope, LaneMapping } from '../board'
-import type { IbisSources } from '../buffers'
+import type { CompiledBuffer, IbisSources } from '../buffers'
 import type { RouteMaterials } from '../extraction'
-import type { RunControls, SimulationModeling } from './types'
+import type { RunControls, SimulationModeling, SimulationPlan } from './types'
 
 export interface RoutedCompileOptions {
   riseSeconds: number
@@ -22,4 +22,15 @@ export interface RouteBindingsInput {
   ibisSources: IbisSources
   options: RoutedCompileOptions
   artifactPrefix: string
+}
+export type RouteBuffer = Pick<CompiledBuffer, 'name' | 'source' | 'spicePinMapping' | 'metadata' | 'warnings' | 'sourceEvidence'>
+export interface RoutedBindings {
+  circuitJson: CircuitJson
+  scope: CopperScope
+  mappings: LaneMapping[]
+  plan: SimulationPlan
+  nodeMap: Record<string, string>
+  groundSourcePortId: string
+  electricalLines: string[]
+  models: RouteBuffer[]
 }
