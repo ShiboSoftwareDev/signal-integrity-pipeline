@@ -133,3 +133,16 @@ test('loadIbisSources rejects traversal and symlinks escaping baseDir, follows c
   const sources=await loadIbisSources({circuitJson:declare('models/link.ibs'),baseDir})
   assert.equal(new TextDecoder().decode(sources['models/link.ibs'] as Uint8Array),'inside')
 })
+
+test('native adapter instances serialize processes and preserve the thread and raw-output environment', async t => {
+  const { root, tool } = await sandbox(t)
+  const lock = join(root, 'active')
+  const body = `const fs=require('node:fs');fs.closeSync(fs.openSync(${JSON.stringify(lock)},'wx'));setTimeout(()=>{fs.unlinkSync(${JSON.stringify(lock)});console.log(process.env.OMP_NUM_THREADS+':'+process.env.SPICE_ASCIIRAWFILE)},30)`
+  const first = createNativeSolver({ tools: { ngspice: process.execPath } })
+  const second = createNativeSolver({ tools: { ngspice: process.execPath } })
+  const request = { solver: 'ngspice' as const, files: {}, args: tool(body), outputFiles: [] }
+  const results = await Promise.all([first(request), second(request), first(request)])
+  assert.ok(results.every(result => result.stdout.trim() === '1:1'))
+  await assert.rejects(first({ ...request, args: tool('process.exit(1)') }), { code: 'native_solver' })
+  assert.equal((await second(request)).stdout.trim(), '1:1', 'a failed native request releases the queue')
+})
