@@ -1,9 +1,9 @@
 import React from 'react'
 import type { CircuitJson } from '../../src/board'
-import { RoutedAdmissionSolver } from '../../src/pipeline'
-import type { RouteBindingsInput } from '../../src/simulation'
 import type { IbisSources } from '../../src/buffers'
+import { RoutedPipelineSolver } from '../../src/pipeline'
 import { prepareBlockById, signalBlocks, type PreparedBlock } from '../../src/pipeline/signals'
+import type { RouteBindingsInput } from '../../src/simulation'
 import { renderCoreSignals } from './core-render'
 
 /** Render through real core, permitting only specifically expected physical diagnostics. */
@@ -29,12 +29,11 @@ export function prepareBlocks({ circuit, sources, distanceMm }: {
   }))
 }
 
-/** The first admitted block's bindings, checked by the standalone admission solver. */
+/** The first admitted block's bindings, admitted through the public root so IBIS bytes are decoded as in production. */
 export function admittedBindings(circuitJson: CircuitJson, ibisSources: IbisSources): Omit<RouteBindingsInput, 'scope'> {
-  const textSources = Object.fromEntries(Object.entries(ibisSources).map(([name, bytes]) => [
-    name, typeof bytes === 'string' ? bytes : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes),
-  ]))
-  const admission = new RoutedAdmissionSolver({ circuitJson, ibisSources: textSources })
-  admission.solve()
-  return admission.getOutput().value[0].bindings
+  const root = new RoutedPipelineSolver({ circuitJson, ibisSources }, { runSolver: async () => {
+    throw new Error('admission needs no native solver')
+  }, progress: () => undefined })
+  root.solveUntilStage('RouteSectionsSolver')
+  return root.stageOutput('RoutedAdmissionSolver').value[0].bindings
 }
