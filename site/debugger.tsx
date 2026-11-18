@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Circuit } from '@tscircuit/core'
-import { GenericSolverDebugger } from '@tscircuit/solver-utils/react'
+import { GenericSolverDebugger, type GenericSolverDebuggerProps } from '@tscircuit/solver-utils/react'
 import type { GraphicsObject, Viewbox } from 'graphics-debug'
 import { createHttpSolver } from '../src/adapters/browser'
 import { RoutedPipelineSolver } from '../src/pipeline'
@@ -8,6 +8,54 @@ import type { CircuitJson } from '../src/board'
 // Imported directly: circuit-to-svg is a development dependency and never enters the library bundle.
 import { boardPicture, boardPictureView } from '../src/board/board-picture'
 import type { IbisSources } from '../src/buffers'
+
+type AtlasMove = { x: number; y: number; zoom: number }
+
+/** Zoom about the cursor only with ctrl/⌘, so the page still scrolls normally. */
+function createAtlasWheelListener({
+  element,
+  base,
+  setMove,
+}: {
+  element: HTMLDivElement
+  base: React.RefObject<number>
+  setMove: React.Dispatch<React.SetStateAction<AtlasMove>>
+}): (event: WheelEvent) => void {
+  return (event) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const box = element.getBoundingClientRect()
+    setMove(({ x, y, zoom }) => {
+      const next = Math.min(20 / base.current, Math.max(1 / base.current, zoom * Math.exp(-event.deltaY * 0.002)))
+      const factor = next / zoom
+      const pointerX = event.clientX - box.left
+      const pointerY = event.clientY - box.top
+      return { zoom: next, x: pointerX - (pointerX - x) * factor, y: pointerY - (pointerY - y) * factor }
+    })
+  }
+}
+
+/** Convert the visible container corners to board coordinates after panning or zooming. */
+function zoomedRegion({
+  width,
+  height,
+  view,
+  camera,
+  move,
+}: { width: number; height: number; view: Viewbox; camera: Viewbox; move: AtlasMove }): Viewbox | undefined {
+  const scale = Math.min(width / (view.maxX - view.minX), height / (view.maxY - view.minY))
+  const left = (width - (view.maxX - view.minX) * scale) / 2
+  const top = (height - (view.maxY - view.minY) * scale) / 2
+  const minX = view.minX + ((0 - move.x) / move.zoom - left) / scale
+  const maxX = view.minX + ((width - move.x) / move.zoom - left) / scale
+  if (maxX - minX >= (camera.maxX - camera.minX) * 0.999) return
+  return {
+    minX,
+    maxX,
+    minY: view.maxY - ((height - move.y) / move.zoom - top) / scale,
+    maxY: view.maxY - ((0 - move.y) / move.zoom - top) / scale,
+  }
+}
 
 /**
  * The real board under the stage drawing at the container's width.
@@ -18,7 +66,7 @@ function RoutedAtlas({ circuit, graphics }: { circuit: CircuitJson; graphics: Gr
   const container = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const [region, setRegion] = useState<Viewbox>()
-  const [move, setMove] = useState({ x: 0, y: 0, zoom: 1 })
+  const [move, setMove] = useState<AtlasMove>({ x: 0, y: 0, zoom: 1 })
   const [hover, setHover] = useState<{ label: string; x: number; y: number }>()
   const camera = boardPictureView(circuit, graphics)
   const view = region ?? camera
@@ -30,17 +78,7 @@ function RoutedAtlas({ circuit, graphics }: { circuit: CircuitJson; graphics: Gr
     const element = container.current!
     const observer = new ResizeObserver(([entry]) => setWidth(Math.floor(entry.contentRect.width)))
     observer.observe(element)
-    /** Zoom about the cursor only with ctrl/⌘, so the page still scrolls normally. */
-    const zoom = (event: WheelEvent): void => {
-      if (!event.ctrlKey && !event.metaKey) return
-      event.preventDefault()
-      const box = element.getBoundingClientRect()
-      setMove(({ x, y, zoom }) => {
-        const next = Math.min(20 / base.current, Math.max(1 / base.current, zoom * Math.exp(-event.deltaY * 0.002)))
-        const factor = next / zoom
-        return { zoom: next, x: event.clientX - box.left - (event.clientX - box.left - x) * factor, y: event.clientY - box.top - (event.clientY - box.top - y) * factor }
-      })
-    }
+    const zoom = createAtlasWheelListener({ element, base, setMove })
     element.addEventListener('wheel', zoom, { passive: false })
     return (): void => {
       observer.disconnect()
@@ -51,18 +89,15 @@ function RoutedAtlas({ circuit, graphics }: { circuit: CircuitJson; graphics: Gr
     if (move.zoom === 1 && move.x === 0 && move.y === 0) return
     // Once interaction pauses, the visible part becomes the rendered region: sharp copper, same-size labels.
     const timer = setTimeout(() => {
-      const scale = Math.min(width / (view.maxX - view.minX), height / (view.maxY - view.minY))
-      const left = (width - (view.maxX - view.minX) * scale) / 2
-      const top = (height - (view.maxY - view.minY) * scale) / 2
-      /** The world point under a container pixel. */
-      const world = (px: number, py: number): { x: number; y: number } => ({ x: view.minX + ((px - move.x) / move.zoom - left) / scale, y: view.maxY - ((py - move.y) / move.zoom - top) / scale })
-      const [low, high] = [world(0, height), world(width, 0)]
-      setRegion(high.x - low.x >= (camera.maxX - camera.minX) * 0.999 ? undefined : { minX: low.x, maxX: high.x, minY: low.y, maxY: high.y })
+      setRegion(zoomedRegion({ width, height, view, camera, move }))
       setMove({ x: 0, y: 0, zoom: 1 })
     }, 250)
     return (): void => clearTimeout(timer)
   }, [move])
-  const picture = useMemo(() => (width > 0 ? boardPicture(circuit, graphics, width, height, region) : undefined), [circuit, graphics, width, height, region])
+  const picture = useMemo(() => {
+    if (!(width > 0)) return
+    return boardPicture({ circuit, drawing: graphics, width, height, region })
+  }, [circuit, graphics, width, height, region])
   return (
     <div
       ref={container}
@@ -77,7 +112,8 @@ function RoutedAtlas({ circuit, graphics }: { circuit: CircuitJson; graphics: Gr
         if (event.buttons === 1 && base.current * move.zoom > 1) setMove((move) => ({ ...move, x: move.x + event.movementX, y: move.y + event.movementY }))
         const label = (event.target as Element).closest?.('[data-label]')?.getAttribute('data-label')
         const box = container.current!.getBoundingClientRect()
-        setHover(label && label !== 'camera' ? { label, x: event.clientX - box.left, y: event.clientY - box.top } : undefined)
+        if (!label || label === 'camera') return setHover(undefined)
+        setHover({ label, x: event.clientX - box.left, y: event.clientY - box.top })
       }}
       onPointerLeave={() => setHover(undefined)}
     >
@@ -101,13 +137,20 @@ function RoutedAtlas({ circuit, graphics }: { circuit: CircuitJson; graphics: Gr
 
 const drawings = new WeakMap<RoutedPipelineSolver, { key: string; graphics: GraphicsObject }>()
 
-/** Draw a stage once per solver state, not on every debugger re-render; the camera resets when the stage changes. */
-function renderStage(root: RoutedPipelineSolver, number: number): React.JSX.Element {
+/** Draw a stage once per solver state. */
+function stageDrawing(root: RoutedPipelineSolver, number: number): GraphicsObject {
   const solver = root.getSolver(root.pipelineDef[number - 1]?.solverName ?? '')
   const key = `${number}:${root.iterations}:${solver?.iterations}:${solver?.solved}:${solver?.failed}`
   const cached = drawings.get(root)
-  const graphics = cached?.key === key ? cached.graphics : root.visualizeStage(number)
+  if (cached?.key === key) return cached.graphics
+  const graphics = root.visualizeStage(number)
   drawings.set(root, { key, graphics })
+  return graphics
+}
+
+/** Render the stage with a fresh camera when the stage number changes. */
+function renderStage(root: RoutedPipelineSolver, number: number): React.JSX.Element {
+  const graphics = stageDrawing(root, number)
   return <RoutedAtlas key={number} circuit={root.inputProblem.circuitJson} graphics={graphics} />
 }
 
@@ -130,10 +173,54 @@ async function renderBoard(tree: React.ReactElement): Promise<CircuitJson> {
   const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(tree)
   await circuit.renderUntilSettled()
-  const records = circuit.getCircuitJson() as CircuitJson
+  const records = circuit.getCircuitJson()
   const errors = records.filter((record) => record.type.endsWith('_error'))
   if (errors.length) throw new Error(JSON.stringify(errors))
   return records
+}
+
+/** Finish asset IO and TSX rendering before handing inputs to the debugger. */
+async function loadBoardSolver({
+  models,
+  boardTree,
+  loadBoard,
+  signal,
+  onReady,
+}: {
+  models: string[]
+  boardTree?: BoardPageProps['board-tree']
+  loadBoard?: BoardPageProps['load-board']
+  signal: AbortSignal
+  onReady: (solver: RoutedPipelineSolver) => void
+}): Promise<void> {
+  const ibisSources: IbisSources = {}
+  for (const model of models) {
+    const path = `models/${model}`
+    if (ibisSources[path]) continue
+    ibisSources[path] = await localAsset(model)
+  }
+  let circuitJson: CircuitJson
+  if (loadBoard) circuitJson = await loadBoard()
+  else circuitJson = await renderBoard(boardTree!)
+  if (signal.aborted) return
+  const runSolver = createHttpSolver({ signal })
+  for (const record of circuitJson) {
+    if (record.type !== 'simulation_ibis_model') continue
+    const path = record.ibis_model_asset.project_relative_path
+    ibisSources[path] ??= ibisSources[`models/${path.split('/').at(-1)}`]
+  }
+  onReady(new RoutedPipelineSolver({ circuitJson, ibisSources, scopeDistanceMm: 1 }, { runSolver, progress: (): void => undefined }))
+}
+
+type DebuggerSolver = NonNullable<GenericSolverDebuggerProps['solver']>
+type PublicDebuggerSolver = Omit<DebuggerSolver, 'activeSubSolver' | 'failedSubSolvers'> & {
+  activeSubSolver?: PublicDebuggerSolver | null
+  failedSubSolvers?: PublicDebuggerSolver[]
+}
+
+/** The React entry declares its own copy of BaseSolver. Check its public shape without changing the instance. */
+function asDebuggerSolver(solver: PublicDebuggerSolver): DebuggerSolver {
+  return solver as DebuggerSolver
 }
 
 /** Show a fixture's routed stages using the local ngspice HTTP execution port. */
@@ -153,7 +240,8 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
       if (iteration === ready.solver.iterations && index === ready.solver.currentPipelineStageIndex) return
       iteration = ready.solver.iterations
       index = ready.solver.currentPipelineStageIndex
-      setStep(iteration === 0 ? 0 : Math.min(index + 1, 6))
+      if (iteration === 0) return setStep(0)
+      setStep(Math.min(index + 1, 6))
     })
     observer.observe(debuggerElement.current, { childList: true, subtree: true, characterData: true })
     return (): void => observer.disconnect()
@@ -175,34 +263,20 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
     }
   }, [])
   useEffect(() => {
-    let cancelled = false
     const controller = new AbortController()
     setReady(undefined)
     setError(undefined)
-    /** Finish IO and TSX rendering before handing immutable inputs to solver-utils. */
-    const load = async (): Promise<void> => {
-      const assets: IbisSources = {}
-      for (const model of models) if (!assets[`models/${model}`]) assets[`models/${model}`] = await localAsset(model)
-      const circuitJson = loadBoard ? await loadBoard() : await renderBoard(boardTree!)
-      if (cancelled) return
-      const runSolver = createHttpSolver({ signal: controller.signal })
-      for (const record of circuitJson)
-        if (record.type === 'simulation_ibis_model') {
-          const path = record.ibis_model_asset.project_relative_path
-          assets[path] ??= assets[`models/${path.split('/').at(-1)}`]
-        }
-      setReady({
-        solver: new RoutedPipelineSolver({ circuitJson, ibisSources: assets, scopeDistanceMm: 1 }, { runSolver, progress: (): void => undefined }),
-        revision: ++revision.current,
-      })
-    }
-    void load().catch((cause: unknown) => {
-      if (!cancelled) setError((cause as Error).message)
+    void loadBoardSolver({
+      models,
+      loadBoard,
+      boardTree,
+      signal: controller.signal,
+      onReady: (solver) => setReady({ solver, revision: ++revision.current }),
+    }).catch((cause: Error) => {
+      if (controller.signal.aborted) return
+      setError(cause.message)
     })
-    return (): void => {
-      cancelled = true
-      controller.abort()
-    }
+    return (): void => controller.abort()
   }, [boardTree, loadBoard, models])
   return (
     <>
@@ -217,7 +291,8 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
             const row = target.closest('tbody > tr')
             if (!row) return
             const index = Array.from(row.parentElement!.children).indexOf(row)
-            if (index >= 0 && index < 6) setStep(index + 1)
+            if (index < 0 || index >= 6) return
+            setStep(index + 1)
           }}
         >
           <label className="step-selector">
@@ -230,8 +305,9 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
               step={1}
               value={step}
               onChange={(event) => {
-                const value = event.currentTarget.valueAsNumber
-                setStep(Number.isFinite(value) ? Math.min(6, Math.max(0, Math.trunc(value))) : 0)
+                const enteredStep = event.currentTarget.valueAsNumber
+                if (!Number.isFinite(enteredStep)) return setStep(0)
+                setStep(Math.min(6, Math.max(0, Math.trunc(enteredStep))))
               }}
             />
           </label>
@@ -242,7 +318,7 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
               render: () => renderStage(ready.solver, step),
               getDownload: () => ready.solver.visualizeStage(step),
             }}
-            solver={ready.solver as unknown as React.ComponentProps<typeof GenericSolverDebugger>['solver']}
+            solver={asDebuggerSolver(ready.solver)}
           />
         </section>
       )}

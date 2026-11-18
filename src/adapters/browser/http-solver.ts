@@ -16,11 +16,11 @@ export function createHttpSolver({ fetch = globalThis.fetch, signal }: HttpSolve
       signal,
     })
     const result = (await response.json()) as SolverResult & { error?: string }
-    if (!response.ok)
-      fail(
-        response.status === 504 ? 'native_timeout' : 'native_solver',
-        result?.error ?? `Local backend returned HTTP ${response.status}`,
-      )
+    if (!response.ok) {
+      const message = result?.error ?? `Local backend returned HTTP ${response.status}`
+      if (response.status === 504) fail('native_timeout', message)
+      fail('native_solver', message)
+    }
     if (
       !result ||
       typeof result.stdout !== 'string' ||
@@ -32,8 +32,10 @@ export function createHttpSolver({ fetch = globalThis.fetch, signal }: HttpSolve
       (result.exitCode !== undefined && result.exitCode !== 0)
     )
       fail('native_solver', 'Invalid local backend solver result')
-    for (const path of request.outputFiles)
-      if (!Object.hasOwn(result.files, path)) fail('native_solver', `Local backend omitted ${path}`)
+    for (const path of request.outputFiles) {
+      if (Object.hasOwn(result.files, path)) continue
+      fail('native_solver', `Local backend omitted ${path}`)
+    }
     return result
   }
 }

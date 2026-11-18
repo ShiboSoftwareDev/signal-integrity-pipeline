@@ -2,25 +2,24 @@ import React, { useMemo, useState } from 'react'
 import { BoardPage } from '../site/debugger'
 import type { CircuitJson } from '../src/board'
 
+/** Collect each declared model basename once, in board order. */
+function collectModelNames(records: CircuitJson | undefined): string[] {
+  const models = new Set<string>()
+  for (const record of records ?? []) {
+    if (record.type !== 'simulation_ibis_model') continue
+    const path = record.ibis_model_asset?.project_relative_path
+    if (typeof path !== 'string') continue
+    models.add(path.split('/').at(-1)!)
+  }
+  return [...models]
+}
+
 /** Paste or upload records without inventing geometry or simulation declarations. */
 export default function CircuitJsonPage(): React.JSX.Element {
   const [text, setText] = useState('[]')
   const [records, setRecords] = useState<CircuitJson>()
   const [error, setError] = useState<string>()
-  const models = useMemo(
-    () => [
-      ...new Set(
-        (records ?? [])
-          .filter((record) => record.type === 'simulation_ibis_model')
-          .flatMap((record) =>
-            typeof record.ibis_model_asset?.project_relative_path === 'string'
-              ? [record.ibis_model_asset.project_relative_path.split('/').at(-1)!]
-              : [],
-          ),
-      ),
-    ],
-    [records],
-  )
+  const models = useMemo(() => collectModelNames(records), [records])
   const loadBoard = useMemo(() => async (): Promise<CircuitJson> => records!, [records])
   return (
     <>
@@ -33,11 +32,11 @@ export default function CircuitJsonPage(): React.JSX.Element {
           accept=".json"
           onChange={(event) => {
             const file = event.target.files?.[0]
-            if (file)
-              void file
-                .text()
-                .then(setText)
-                .catch((cause) => setError(String(cause)))
+            if (!file) return
+            void file
+              .text()
+              .then(setText)
+              .catch((cause) => setError(String(cause)))
           }}
         />
       </label>
@@ -45,13 +44,13 @@ export default function CircuitJsonPage(): React.JSX.Element {
       <button
         onClick={() => {
           try {
-            const value = JSON.parse(text) as unknown
+            const parsedRecords: unknown = JSON.parse(text)
             if (
-              !Array.isArray(value) ||
-              value.some((record) => !record || typeof record !== 'object' || typeof record.type !== 'string')
+              !Array.isArray(parsedRecords) ||
+              parsedRecords.some((record) => !record || typeof record !== 'object' || typeof record.type !== 'string')
             )
               throw new Error('Expected an array of Circuit JSON records')
-            setRecords(value as CircuitJson)
+            setRecords(parsedRecords as CircuitJson)
             setError(undefined)
           } catch (cause) {
             setError((cause as Error).message)
