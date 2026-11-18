@@ -52,7 +52,7 @@ export function routeReferences({ geometry, wire, position }: { geometry: Pick<S
     return { ...reference, z: layer.zMaxMm }
   })
   const actual = [candidates.filter(plane => plane.z <= signal.zMinMm).sort((a, b) => b.z - a.z)[0],
-    candidates.filter(plane => plane.z >= signal.zMaxMm).sort((a, b) => a.z - b.z)[0]].filter((plane): plane is RouteReference => !!plane)
+    candidates.filter(plane => plane.z >= signal.zMaxMm).sort((a, b) => a.z - b.z)[0]].filter((plane): plane is RouteReference => plane !== undefined)
   if (actual.length) return actual
   // A local aperture can remove all vertically intersecting copper. Use the nearest *actual* edge,
   // displaced by the edge distance, as an explicit quasi-static fringing/return-detour estimate.
