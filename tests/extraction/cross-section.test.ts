@@ -1,9 +1,12 @@
-import { test } from 'bun:test'
+import { setDefaultTimeout, test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
 import { coupledMicrostrip, coupledStripline, pozarStriplineAttenuation, singleMicrostrip, stripline } from './cross-section-reference'
 import { sectionFixture } from './cross-section-fixtures'
 import { energyFacts, maxwellFacts } from '../support/golden-checks'
+
+// CPU-bound geometry sweeps need an explicit budget on the slower CI runner.
+setDefaultTimeout(30_000)
 
 const c = 299792458
 
@@ -280,7 +283,7 @@ test('golden stage 3: wide stripline skin resistance approaches Rs/w', () => {
     const [r20, r40] = [20, 40].map(w => solveCrossSection(centred(w, 1, .035), { panelsPerEdge: panels }).skinResistance[0][0] * w * 1e-3 / surface(copper))
     assert.ok(Math.abs(2 * r40 - r20 - 1) <= .02 && r20 > r40 && r40 > 1, `${panels} panels: r20 ${r20}, r40 ${r40}`)
   }
-}, 30_000)
+})
 
 test('golden stage 3: stripline conductor attenuation agrees with Pozar\'s Wheeler-derived closed form', () => {
   // (d) Pozar's alpha_c (cross-section-reference.ts) at w/b = 0.5, 1, 2: within 10% (a curve fit). Pozar gives
