@@ -54,38 +54,38 @@ test('full unrouted check reaches the segment after a series passive', { skip: !
   if (block.type !== 'simulation_pcb_transient_channel_simulation') throw new Error('Missing block')
   block.allow_unrouted_traces = false
   const ibis = await sources()
-  assert.throws(() => prepareBlocks(circuit, ibis), /is not routed between/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: ibis }), /is not routed between/)
   const geometryOnly = circuit.filter(record => !record.type.endsWith('_error'))
-  assert.throws(() => prepareBlocks(geometryOnly, ibis), /is not routed between/)
+  assert.throws(() => prepareBlocks({ circuitJson: geometryOnly, sources: ibis }), /is not routed between/)
   block.allow_unrouted_traces = true
-  const [prepared] = prepareBlocks(circuit, ibis)
+  const [prepared] = prepareBlocks({ circuitJson: circuit, sources: ibis })
   assert.ok(geometryFromCircuitJson(prepared.circuit, prepared.settings).cells[0].routedCopper)
 })
 
 test('same-end return contacts keep the original 3D routed copper', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Board sameEnd />)
-  const prepared = prepareBlocks(circuit, await sources())[0]
+  const prepared = prepareBlocks({ circuitJson: circuit, sources: await sources() })[0]
   assert.ok(geometryFromCircuitJson(prepared.circuit, prepared.settings).cells[0].routedCopper)
 })
 
 test('routed receiver arrays get the RFC not-implemented diagnostic', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Board branch />)
   const ibis = await sources()
-  assert.throws(() => prepareBlocks(circuit, ibis), /branched routed graphs are not implemented yet/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: ibis }), /branched routed graphs are not implemented yet/)
 })
 
 test('pipeline checks selected IBIS roles and disabled states after TSX rendering', async () => {
   const circuit = await renderSignals(<Board />)
   const disabled = await renderSignals(<Board driverDisabled />)
   const file = 'models/sn74lvc1g04.ibs'
-  assert.throws(() => prepareBlocks(circuit, { [file]: routedVisualIbis.replace('Model_type Output', 'Model_type Input') }), /Signal "D81".*LVC1G04_OUT_33.*does not support driving/)
-  assert.throws(() => prepareBlocks(circuit, { [file]: routedVisualIbis.replace('Model_type Input', 'Model_type Output') }), /Signal "D81".*LVC1G04_IN_33.*does not support receiving/)
-  assert.throws(() => prepareBlocks(disabled, { [file]: routedVisualIbis }), /Signal "D81".*LVC1G04_OUT_33.*has no disabled state/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: { [file]: routedVisualIbis.replace('Model_type Output', 'Model_type Input') } }), /Signal "D81".*LVC1G04_OUT_33.*does not support driving/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: { [file]: routedVisualIbis.replace('Model_type Input', 'Model_type Output') } }), /Signal "D81".*LVC1G04_IN_33.*does not support receiving/)
+  assert.throws(() => prepareBlocks({ circuitJson: disabled, sources: { [file]: routedVisualIbis } }), /Signal "D81".*LVC1G04_OUT_33.*has no disabled state/)
 })
 
 test('an unlisted output on the same net is diagnosed before routed branch checks', async () => {
   const circuit = await renderSignals(<Board extraDriver />)
-  assert.throws(() => prepareBlocks(circuit, { 'models/sn74lvc1g04.ibs': routedVisualIbis }), /Signal "D81" has two drivers/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: { 'models/sn74lvc1g04.ibs': routedVisualIbis } }), /Signal "D81" has two drivers/)
 })
 
 test('core plans PRBS seeds across blocks, preserves an explicit seed and emits an eye window in milliseconds', async () => {
@@ -110,7 +110,7 @@ test('core plans PRBS seeds across blocks, preserves an explicit seed and emits 
 
 test('unlisted output-only models drive a steady physical low; D81 receives a legal planned seed', { skip: !modelDir }, async () => {
   const circuit = await renderSignals(<Board unlisted />)
-  const prepared = prepareBlocks(circuit, await sources())[0]
+  const prepared = prepareBlocks({ circuitJson: circuit, sources: await sources() })[0]
   assert.equal(prepared.signals[0].seed, 127)
   const extra = [...prepared.pins.values()].find(pin => pin.buffer.type === 'output' && pin.port !== ('source_port_id' in prepared.signals[0].driver ? prepared.signals[0].driver.source_port_id : ''))!
   const { states, stimuli } = prepared.controls[prepared.block.simulation_pcb_transient_channel_simulation_id]
@@ -124,11 +124,11 @@ test('TSX vias use core preset plating and respect an explicit stackup thickness
   const stack = circuit.find(record => record.type === 'pcb_stackup')!
   if (stack.type !== 'pcb_stackup') throw new Error('Missing stackup')
   assert.equal(stack.plated_hole_copper_thickness, .018)
-  assert.equal(prepareBlocks(circuit, ibis)[0].settings.viaPlatingMm, .018)
+  assert.equal(prepareBlocks({ circuitJson: circuit, sources: ibis })[0].settings.viaPlatingMm, .018)
   delete stack.plated_hole_copper_thickness
-  assert.throws(() => prepareBlocks(circuit, ibis), /pcb_stackup must specify plated_hole_copper_thickness/)
+  assert.throws(() => prepareBlocks({ circuitJson: circuit, sources: ibis }), /pcb_stackup must specify plated_hole_copper_thickness/)
   stack.plated_hole_copper_thickness = .025
-  const [prepared] = prepareBlocks(circuit, ibis)
+  const [prepared] = prepareBlocks({ circuitJson: circuit, sources: ibis })
   assert.equal(prepared.settings.viaPlatingMm, .025)
   assert.ok(geometryFromCircuitJson(prepared.circuit, prepared.settings).cells[0].routedCopper)
 })
@@ -161,23 +161,23 @@ test('literal, clock and constant patterns and disabled drivers', () => {
 })
 
 test('the removed modeling API cannot supply a test or synthesize a block', () => {
-  assert.deepEqual(prepareBlocks([], {}), [])
+  assert.deepEqual(prepareBlocks({ circuitJson: [], sources: {} }), [])
 })
 
 test('explicit duration survives the milliseconds conversion and automatic duration stays absent in source', { skip: !modelDir }, async () => {
   const automatic = await renderSignals(<Board />)
   const ibis = await sources()
   assert.equal(automatic.find(record => record.type === 'simulation_pcb_transient_channel_simulation')?.duration_ms, undefined)
-  assert.equal(prepareBlocks(automatic, ibis)[0].duration, 144 / 20e6)
+  assert.equal(prepareBlocks({ circuitJson: automatic, sources: ibis })[0].duration, 144 / 20e6)
 
   const explicit = await renderSignals(<Board duration={1e-9} />)
-  const [prepared] = prepareBlocks(explicit, ibis)
+  const [prepared] = prepareBlocks({ circuitJson: explicit, sources: ibis })
   assert.ok(Math.abs(prepared.duration - 1e-9) <= Number.EPSILON * 1e-9)
   assert.ok(Math.abs((prepared.block.duration_ms ?? NaN) - 1e-6) <= Number.EPSILON * 1e-6)
 })
 
 test('numeric TSX offsets are seconds, with startup added before the finite capture', { skip: !modelDir }, async () => {
-  const [prepared] = prepareBlocks(await renderSignals(<Board offset={.5} />), await sources())
+  const [prepared] = prepareBlocks({ circuitJson: await renderSignals(<Board offset={.5} />), sources: await sources() })
   assert.equal(prepared.signals[0].offset_ms, 500)
   assert.ok(Math.abs(prepared.duration - (.5 + 144 / 20e6)) < 1e-15)
 })

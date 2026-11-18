@@ -14,7 +14,7 @@ const modelDir = process.env.IBIS_MODEL_DIR
 
 test('native transient admission rejects error logs and incomplete recording coverage', { skip: !modelDir }, async () => {
   const ibis = { 'models/sn74lvc1g04.ibs': await readFile(`${modelDir}/sn74lvc1g04.ibs`) }
-  const [prepared] = prepareBlocks(await renderSignals(<Single />), ibis)
+  const [prepared] = prepareBlocks({ circuitJson: await renderSignals(<Single />), sources: ibis })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
   const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls)
   const admitted = admitBuffers(declarations.models, ibis, {}, rootScope('buffers'))

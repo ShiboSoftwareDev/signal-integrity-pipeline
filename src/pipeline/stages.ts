@@ -7,7 +7,7 @@ import {
   runIdle, runExperiment, experimentResult,
 } from '../simulation'
 import { waveformConvergence } from '../observation'
-import type { Chain, ObservedRun, Stage } from './state'
+import type { Chain, ObservedRun, Stage, StateAt } from './state'
 
 /** Private native stages; public RFC waveforms are assembled after numerical acceptance. */
 export const admit: Stage<'input', 'admitted'> = {
@@ -59,6 +59,24 @@ export const extract: Stage<'bound', 'extracted'> = {
 /** Large adaptive waveforms are retained for the accepted run; refinement history keeps hashes and native requests. */
 const waveformArtifact = (artifact: Artifact): boolean => /(?:^|\/)waveform\.(?:dat|csv|json)$/.test(artifact.path)
 
+const refinementDimensions = ['time', 'space'] as const
+type RefinementDimension = typeof refinementDimensions[number]
+
+/** Refine one dimension, keeping the other fixed for convergence comparison. */
+function refineTransient({ dimension, plan, modeling, convergence }: {
+  dimension: RefinementDimension
+  plan: StateAt<'extracted'>['plans'][number]
+  modeling: StateAt<'extracted'>['modeling']
+  convergence: unknown[]
+}): void {
+  if (dimension === 'time') {
+    plan.maxStepSeconds /= 2
+    return
+  }
+  if (modeling.sections === 128) throw Object.assign(new Error(`${plan.name}: section refinement reached 128 before convergence`), { convergence })
+  modeling.sections = Math.min(128, modeling.sections * 2)
+}
+
 export const simulate: Stage<'extracted', 'simulated'> = {
   name: 'simulate', from: 'extracted', to: 'simulated',
   run: async (state, ctx) => {
@@ -82,12 +100,8 @@ export const simulate: Stage<'extracted', 'simulated'> = {
       let accepted = false
       for (let refinement = 1; refinement <= 10; refinement++) {
         const previous = run
-        const dimension = refinement % 2 ? 'time' : 'space'
-        if (dimension === 'time') plan.maxStepSeconds /= 2
-        else {
-          if (state.modeling.sections === 128) throw Object.assign(new Error(`${plan.name}: section refinement reached 128 before convergence`), { convergence })
-          state.modeling.sections = Math.min(128, state.modeling.sections * 2)
-        }
+        const dimension = refinementDimensions[(refinement - 1) % 2]
+        refineTransient({ dimension, plan, modeling: state.modeling, convergence })
         scope = base.child(`numerical-refinement-${refinement}`)
         assembly = ibisAssembly(state.compiled[index], scope.handTo('buffers'))
         run = await runExperiment(ctx, scope, state.bound, index, state.geometry, state.modeling, state.channel.matrices).catch(error => {
@@ -96,7 +110,7 @@ export const simulate: Stage<'extracted', 'simulated'> = {
         artifacts.push(...assembly.artifacts, ...run.artifacts.filter(artifact => !waveformArtifact(artifact)))
         const check = waveformConvergence(previous.value.rows, run.value.rows, gate, idle.value.voltages)
         settled[dimension] = check.accepted
-        if (!check.accepted) settled[dimension === 'time' ? 'space' : 'time'] = false
+        if (!check.accepted) settled[refinementDimensions[refinement % 2]] = false
         convergence.push({ previous_waveform_csv_sha256: previous.value.waveformCsvSha256, waveform_csv_sha256: run.value.waveformCsvSha256, dimension, sections: state.modeling.sections, step_s: plan.maxStepSeconds, ...check })
         ctx.progress(`${plan.name}: sections=${state.modeling.sections}, step=${plan.maxStepSeconds}, peaks=${check.probes.map(p => p.peak_change_v).join(',')}, accepted=${check.accepted}`)
         if (settled.time && settled.space) {

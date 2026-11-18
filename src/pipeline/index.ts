@@ -1,6 +1,6 @@
 /** Derives independent signal-integrity runs from Circuit JSON. */
 export { runPipeline } from './run'
-export type { PipelineOptions, PipelineResult, PipelineBlockResult, BlockResult, ExperimentResult } from './result'
+export type { PipelineOptions, PipelineResult, PipelineBlockResult, ExperimentResult } from './result'
 export type { NumericalSettings } from './modeling'
 export { RoutedPipelineSolver, routedStages, type RoutedInspection, type RoutedBlockView } from './routed-pipeline'
 export { RoutedStageSolver } from './routed-stage'

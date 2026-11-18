@@ -14,7 +14,7 @@ test('manual real-footprint differential pair joins termination tails and retain
   assert.equal(tree.props.routeRemaining, false)
   const circuit = await renderCoreSignals(tree)
   const ibis = await readFile(`${process.env.IBIS_MODEL_DIR ?? 'models'}/sn65hvd72.ibs`)
-  const prepared = prepareBlocks(circuit, { 'models/sn65hvd72.ibs': ibis })[0]
+  const prepared = prepareBlocks({ circuitJson: circuit, sources: { 'models/sn65hvd72.ibs': ibis } })[0]
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
   assert.equal(geometry.mappings.length, 2)
   for (const mapping of geometry.mappings) {

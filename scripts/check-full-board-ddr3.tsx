@@ -18,11 +18,11 @@ for (const id of circuit.filter(record => record.type === 'source_net').filter(n
   .concat(models.flatMap(model => Object.values(model.ibis_pin_name_to_reference_source_port_ids ?? {}).flatMap(refs => Object.values(refs).filter((id): id is string => !!id))))) {
   if (!rails.has(id)) for (const member of connectedSourceIds(circuit, id)) rails.add(member)
 }
-const topology = new Map(signals.flatMap(signal => endpointPorts(signal.driver).flatMap(port => [...signalTopology(circuit, port, rails)].map(id => [id, signal.name] as const))))
+const topology = new Map(signals.flatMap(signal => endpointPorts(signal.driver).flatMap(port => [...signalTopology({ circuit, seed: port, rails })].map(id => [id, signal.name] as const))))
 const reference = models[0].ibis_pin_name_to_source_port_id.A1
 const ground = connectedSourceIds(circuit, reference)
 const scope = channelCopperScope({ circuit, selected: new Set(topology.keys()), reference: ground, rails })
-const routed = routedLanes(circuit, scope, topology, new Set(signals.flatMap(signal => endpointPorts(signal.driver))), rails)
+const routed = routedLanes({ circuit, scope, topology, driven: new Set(signals.flatMap(signal => endpointPorts(signal.driver))), rails })
 const sourceTraces = circuit.filter(record => record.type === 'source_trace')
 const pcbTraces = circuit.filter(record => record.type === 'pcb_trace')
 const vias = circuit.filter(record => record.type === 'pcb_via')
@@ -47,7 +47,7 @@ let warnings: string[] = []
 try {
   validateCircuitRecords(circuit)
   passed.push('Circuit JSON schema')
-  const [block] = prepareBlocks(circuit, sources)
+  const [block] = prepareBlocks({ circuitJson: circuit, sources })
   passed.push('prepareBlocks')
   const context = { progress: (): void => {} }
   const admitted = (await admit.run({ phase: 'input', options: { circuitJson: block.circuit, controls: block.controls, modeling: block.settings, ibisSources: sources } }, context)).state

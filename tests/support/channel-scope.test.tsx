@@ -33,15 +33,15 @@ function Board({ unrelatedY = 20, neighbour = false }: { unrelatedY?: number; ne
 test('TSX unrelated branched copper cannot reject a selected channel on the full board', { skip: !process.env.IBIS_MODEL_DIR }, async () => {
   const circuit = await renderSignals(<Board />)
   const sources = { 'models/sn74lvc1g04.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`) }
-  const [block] = prepareBlocks(circuit, sources)
+  const [block] = prepareBlocks({ circuitJson: circuit, sources })
   assert.equal(block.settings.lanes.length, 1)
   assert.equal(geometryFromCircuitJson(block.circuit, block.settings).mappings.length, 1)
   assert.equal(block.settings.copperScope?.omitted.traces, 2)
-  const near = prepareBlocks(await renderSignals(<Board neighbour />), sources)[0]
+  const near = prepareBlocks({ circuitJson: await renderSignals(<Board neighbour />), sources })[0]
   assert.equal(near.settings.lanes.length, 2, 'nearby quiet conductor is retained')
   const quiet = [...near.pins.values()].find(pin => pin.buffer.type === 'output' && !near.signals.some(signal => 'source_port_id' in signal.driver && signal.driver.source_port_id === pin.port))!
   assert.ok(near.controls[near.block.simulation_pcb_transient_channel_simulation_id].stimuli.some(stimulus => stimulus.source_port_id === quiet.port && stimulus.transmission_pattern.bits === '0'))
   assert.equal(geometryFromCircuitJson(near.circuit, near.settings).mappings.length, 2)
   const nearbyBranch = await renderSignals(<Board unrelatedY={.5} />)
-  assert.throws(() => prepareBlocks(nearbyBranch, sources), /branched routed graphs are not implemented yet/)
+  assert.throws(() => prepareBlocks({ circuitJson: nearbyBranch, sources }), /branched routed graphs are not implemented yet/)
 })

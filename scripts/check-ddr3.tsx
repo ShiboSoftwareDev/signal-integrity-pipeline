@@ -32,7 +32,7 @@ const summary = {
   physical_records: Object.fromEntries(['pcb_trace', 'pcb_via', 'pcb_copper_pour'].map(type => [type, circuit.filter(record => record.type === type).length])),
 }
 
-const [block] = prepareBlocks(circuit, sources)
+const [block] = prepareBlocks({ circuitJson: circuit, sources })
 const context = { progress: (): void => {} }
 const passed = ['prepareBlocks']
 let nextStage = 'admit'

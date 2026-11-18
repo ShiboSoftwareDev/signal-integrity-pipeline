@@ -9,8 +9,8 @@ JSON, generated netlists or plots are committed.
 
 ## Geometry and scope
 
-`prepareBlocks(..., '2d')` admits whole candidate nets within a 32 mm geometry cap
-on the same/adjacent layers, including branched
+`prepareBlocks({ circuitJson, sources, extraction: '2d' })` admits whole candidate
+nets within a 32 mm geometry cap on the same/adjacent layers, including branched
 and unmodelled neighbours. Only the selected channel graph must have supported
 endpoint declarations. Quiet mapped IBIS pins retain their existing run states.
 Unknown external loads are explicitly recorded as open/ideal-logical terminations;

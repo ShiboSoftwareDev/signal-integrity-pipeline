@@ -91,10 +91,10 @@ export class RoutedPipelineSolver extends BasePipelineSolver<RoutedProblem> {
     readonly context: SolverContext,
   ) {
     const ibisSources = Object.fromEntries(
-      Object.entries(input.ibisSources).map(([name, bytes]) => [
-        name,
-        typeof bytes === 'string' ? bytes : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes),
-      ]),
+      Object.entries(input.ibisSources).map(([name, bytes]) => {
+        if (typeof bytes === 'string') return [name, bytes]
+        return [name, new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)]
+      }),
     )
     super(snapshot({ ...input, ibisSources }))
   }
@@ -148,15 +148,15 @@ export class RoutedPipelineSolver extends BasePipelineSolver<RoutedProblem> {
     // A stage that cannot be built yet shows the selected copper and its unrolled lengths in neutral grey.
     const scope = plans?.[0]?.sections.scope
     const drawing = routeBoardDrawing({ circuit, scope, color: () => routeTones.copper })
-    if (scope) {
-      const view = routeView(circuit, scope)
-      routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view).map(row => ({ ...row, parts: [{ from: 0, to: row.length, color: routeTones.copper }] })) })
-    }
+    if (!scope) return drawing
+    const view = routeView(circuit, scope)
+    routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view).map(row => ({ ...row, parts: [{ from: 0, to: row.length, color: routeTones.copper }] })) })
     return drawing
   }
   /** Stage boundaries show the incoming input immediately, before its first step. */
   override visualize(): GraphicsObject {
-    return this.visualizeStage(this.iterations === 0 ? 0 : Math.min(this.currentPipelineStageIndex + 1, this.pipelineDef.length))
+    if (this.iterations === 0) return this.visualizeStage(0)
+    return this.visualizeStage(Math.min(this.currentPipelineStageIndex + 1, this.pipelineDef.length))
   }
   /** Before any stage has run there is nothing to overlay, so the whole board shows. */
   override initialVisualize(): GraphicsObject {

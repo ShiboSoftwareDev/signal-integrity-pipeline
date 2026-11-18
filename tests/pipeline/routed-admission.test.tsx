@@ -7,8 +7,8 @@ import { routedProblem } from '../support/routed-fixture'
 test('admission uses shared block lowering, retains warnings and rejects invalid scope', async (context) => {
   const input = await routedProblem(context)
   if (!input) return
-  const [block] = prepareBlocks(input.circuitJson, input.ibisSources, '2d', 1)
-  const single = prepareBlockById(input.circuitJson, input.ibisSources, block.block.simulation_pcb_transient_channel_simulation_id, '2d', 1)
+  const [block] = prepareBlocks({ circuitJson: input.circuitJson, sources: input.ibisSources, extraction: '2d', distanceMm: 1 })
+  const single = prepareBlockById({ circuitJson: input.circuitJson, sources: input.ibisSources, blockId: block.block.simulation_pcb_transient_channel_simulation_id, extraction: '2d', distanceMm: 1 })
   assert.deepEqual(single.settings, block.settings)
   assert.deepEqual(single.circuit, block.circuit)
   assert.deepEqual(single.warnings, block.warnings)

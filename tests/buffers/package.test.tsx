@@ -19,7 +19,7 @@ const modelDir = process.env.IBIS_MODEL_DIR
 async function fixture(differential: boolean = false): Promise<{ bytes: Uint8Array; prepared: ReturnType<typeof prepareBlocks>[number]; geometry: ReturnType<typeof geometryFromCircuitJson>; declarations: ReturnType<typeof generalDeclarations> }> {
   const file = differential ? 'sn65hvd72.ibs' : 'sn74lvc1g04.ibs'
   const bytes = await readFile(`${modelDir}/${file}`)
-  const [prepared] = prepareBlocks(await renderSignals(differential ? <Differential /> : <Single />), { [`models/${file}`]: bytes })
+  const [prepared] = prepareBlocks({ circuitJson: await renderSignals(differential ? <Differential /> : <Single />), sources: { [`models/${file}`]: bytes } })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
   return { bytes, prepared, geometry, declarations: generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls) }
 }

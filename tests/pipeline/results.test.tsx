@@ -28,7 +28,7 @@ function Board(): React.JSX.Element {
 
 test('public RLGC selects listed legs and sums section totals; quiet waveform idle is separately solved', { skip: !process.env.IBIS_MODEL_DIR }, async () => {
   const circuit = await renderSignals(<Board />)
-  const [prepared] = prepareBlocks(circuit, { 'models/sn74lvc1g04.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`) })
+  const [prepared] = prepareBlocks({ circuitJson: circuit, sources: { 'models/sn74lvc1g04.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`) } })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
   assert.equal(geometry.mappings.length, 2)
   const driver = prepared.signals[0].driver
@@ -76,7 +76,7 @@ test('public RLGC selects listed legs and sums section totals; quiet waveform id
 
 
 test('differential RLGC identifies both physical driver ports without leg labels', { skip: !process.env.IBIS_MODEL_DIR }, async () => {
-  const [prepared] = prepareBlocks(await renderSignals(<Differential />), { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`) })
+  const [prepared] = prepareBlocks({ circuitJson: await renderSignals(<Differential />), sources: { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`) } })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
   const id = prepared.signals[0].simulation_pcb_driver_receiver_channel_id
   // Synthetic matrix projection over a real TSX board; no native execution.

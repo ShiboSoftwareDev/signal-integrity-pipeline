@@ -1,19 +1,12 @@
-import { ArtifactLedger, type FileMap } from '../kernel'
+import { ArtifactLedger } from '../kernel'
 import type { SolverContext } from '../solver'
 import type { PreparedOptions, PreparedResult } from './result'
-import { PRE_VALIDATION, type AnyStage, type Phase, type PipelineState, type PureContext, type StateAt } from './state'
+import { PRE_VALIDATION, type AnyStage, type Phase, type PipelineState, type PureContext } from './state'
 import { STAGES } from './stages'
 
-/** Adds the sealed ledger to the sealed state's result. A plain function, not a stage. */
-function sealResult(state: StateAt<'sealed'>, files: FileMap): PreparedResult {
-  return { ...state.result, files }
-}
-
 /**
- * Public. Deterministic fold over STAGES. This is the only place in the pipeline that holds
- * runSolver: pre-validation stages get a PureContext, later ones a SolverContext.
- * On any Diagnostic the run rethrows (no partial result; a rerun recomputes everything).
- * No retries, no caching, no concurrency between experiments.
+ * Fold over STAGES in order. Pre-validation stages get a pure context.
+ * Later stages receive the solver capability and run experiments sequentially.
  */
 export async function runPrepared(options: PreparedOptions): Promise<PreparedResult> {
   const { runSolver, ...pure } = options
@@ -24,11 +17,12 @@ export async function runPrepared(options: PreparedOptions): Promise<PreparedRes
   let ledger = ArtifactLedger.empty()
   for (const stage of STAGES as readonly AnyStage[]) {
     if (state.phase !== stage.from) throw new Error(`pipeline: stage ${stage.name} expects phase ${stage.from}, got ${state.phase}`)
-    const preValidation = (PRE_VALIDATION as readonly Phase[]).includes(stage.from)
-    const next: { state: PipelineState; artifacts: Parameters<ArtifactLedger['add']>[0] } = await stage.run(state, preValidation ? pureContext : solverContext)
+    let context: PureContext = solverContext
+    if ((PRE_VALIDATION as readonly Phase[]).includes(stage.from)) context = pureContext
+    const next: { state: PipelineState; artifacts: Parameters<ArtifactLedger['add']>[0] } = await stage.run(state, context)
     ledger = ledger.add(next.artifacts)
     state = next.state
   }
   if (state.phase !== 'sealed') throw new Error(`pipeline: ended in phase ${state.phase}`)
-  return sealResult(state, ledger.seal())
+  return { ...state.result, files: ledger.seal() }
 }

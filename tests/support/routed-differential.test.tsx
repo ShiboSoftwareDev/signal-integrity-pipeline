@@ -10,7 +10,7 @@ import { renderCoreSignals } from './core-render'
 test('TSX differential receiver can share its physical pin with a routed termination stub', { skip: !process.env.IBIS_MODEL_DIR && 'Set IBIS_MODEL_DIR to local vendor sn65hvd72.ibs; vendor bytes are not committed' }, async () => {
   const circuit = await renderCoreSignals(<Differential />)
   const sources = { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`, 'utf8') }
-  const [block] = prepareBlocks(circuit, sources, '2d')
+  const [block] = prepareBlocks({ circuitJson: circuit, sources, extraction: '2d' })
   assert.equal(block.settings.lanes.length, 4, 'two bus routes and two termination stubs')
   const port = { progress: (): void => undefined, runSolver: async (): Promise<never> => {
     throw new Error('compiler test must not run ngspice')

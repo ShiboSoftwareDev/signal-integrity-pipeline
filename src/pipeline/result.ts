@@ -75,6 +75,3 @@ export interface PipelineResult {
   limitations: string[]
   files: FileMap
 }
-
-/** Historical type name retained for consumers; fields follow the RFC. */
-export type BlockResult = PipelineBlockResult

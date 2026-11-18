@@ -17,7 +17,7 @@ export class RoutedStageSolver<I, O> extends BaseSolver {
     private readonly solverClass: ItemClass<I, O>,
   ) {
     super()
-    this.current = inputs.length ? new solverClass(inputs[0]) : undefined
+    if (inputs.length) this.current = new solverClass(inputs[0])
   }
   /** Use the domain name in debugger breadcrumbs, without creating nested pipeline rows. */
   override getSolverName(): string {
@@ -43,9 +43,14 @@ export class RoutedStageSolver<I, O> extends BaseSolver {
   private recordStats(): void {
     const current = this.current!
     const stats = { ...current.stats }
-    for (const [name, value] of Object.entries(current.stats)) {
-      if (typeof value === 'number')
-        stats[name] = name.startsWith('maximum') ? Math.max(this.completedStats[name] ?? 0, value) : (this.completedStats[name] ?? 0) + value
+    for (const [name, stat] of Object.entries(current.stats)) {
+      if (typeof stat !== 'number') continue
+      const completed = this.completedStats[name] ?? 0
+      if (name.startsWith('maximum')) {
+        stats[name] = Math.max(completed, stat)
+        continue
+      }
+      stats[name] = completed + stat
     }
     this.stats = { ...stats, blocks: this.inputs.length, completedBlocks: this.outputs.length + Number(current.solved) }
     if (current.solved) Object.assign(this.completedStats, stats)
@@ -54,11 +59,16 @@ export class RoutedStageSolver<I, O> extends BaseSolver {
   private finish(): void {
     const current = this.current!
     if (current.failed) throw new Error(current.error ?? `${this.getSolverName()} failed`)
-    if (current.solved) {
-      this.outputs.push(current.getOutput())
-      if (this.outputs.length === this.inputs.length) this.prepare()
+    if (!current.solved) {
+      this.progress = (this.outputs.length + current.progress) / this.inputs.length
+      return
     }
-    this.progress = this.inputs.length ? (this.outputs.length + (current.solved ? 0 : current.progress)) / this.inputs.length : 1
+    this.outputs.push(current.getOutput())
+    if (this.outputs.length === this.inputs.length) {
+      this.prepare()
+      return
+    }
+    this.progress = this.outputs.length / this.inputs.length
   }
   /** Preserve synchronous compile-only stepping through all five non-native stages. */
   override _step(): void {
