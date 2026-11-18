@@ -53,7 +53,9 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
   const poles = causalLossPoles()
   const lines: string[] = []
   skinEnergy({ lines, tag: 'T', before: ['a', 'b', 'c'], stripStages: poles.map((_, p) => ['a', 'b', 'c'].map(node => `q${node}${p}`)), stages: poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), matrix: energy(matrix), poles, dc: [1, 1, 1], strip: [0, 0, 0] })
-  assert.equal(lines.filter(line => / q[abc]\d /.test(line)).length, 0, 'no conductor-wall chain without a share')
+  assert.equal(lines.filter(line => line.split(' ').slice(1, -1).some(token =>
+    token.length === 3 && token[0] === 'q' && 'abc'.includes(token[1]) && token[2] >= '0' && token[2] <= '9',
+  )).length, 0, 'no conductor-wall chain without a share')
   assert.equal(lines.filter(line => line.startsWith('K')).length, 0, 'no per-pole mutual inductance layers')
   for (const frequency of [1e6, 1e9, 2e10]) {
     const omega = 2 * Math.PI * frequency
@@ -80,7 +82,10 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
       for (const [node, sign] of [[a, 1], [b, -1]] as const) residual.set(node, (residual.get(node) ?? [0, 0]).map((value, k) => value + sign * current[k]))
     }
     for (const [node, value] of residual) {
-      const expected = /^[abc]$/.test(node) ? currents['abc'.indexOf(node)] : /^[abc]8$/.test(node) ? -currents['abc'.indexOf(node[0])] : 0
+      const index = node.length ? 'abc'.indexOf(node[0]) : -1
+      let expected = 0
+      if (index !== -1 && node.length === 1) expected = currents[index]
+      if (index !== -1 && node.length === 2 && node[1] === '8') expected = -currents[index]
       if (node !== '0') assert.ok(Math.hypot(value[0] - expected, value[1]) < 1e-12, `${frequency} Hz KCL at ${node}`)
     }
   }

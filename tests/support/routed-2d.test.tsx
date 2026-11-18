@@ -6,6 +6,11 @@ import { channelCopperScope, connectedSourceIds, segmentRoutes, routeReferences,
 import { RouteFieldsSolver, referenceSeries } from '../../src/extraction'
 import { routeLadder, routeOblique, routeTransitions } from '../../src/simulation'
 
+/** Normalize coordinate punctuation when deriving synthetic SPICE endpoint names. */
+function endpointName(name: string): string {
+  return name.replaceAll('-', '_').replaceAll('.', '_')
+}
+
 /** Real TSX copper, two parallel routed wires and a reference that changes across x=0. */
 function Board({ overlap = false, oblique = false }: { overlap?: boolean; oblique?: boolean } = {}): React.JSX.Element {
   return <board width={16} height={12} layers={8} thickness={1.2} fabricatorPreset="jlcpcb_standard" routeRemaining={false} schematicDisabled allowBlindAndBuriedVias>
@@ -56,11 +61,11 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   const referenced = referenceSeries(pair, [1])
   assert.ok(referenced.L[0][0] < pair.L[0][0], 'shorted AC reference induces a return current instead of an open conductor')
   assert.ok(Math.abs(referenced.L[0][0] * pair.C0[0][0] / (1.25663706212e-6 * 8.8541878128e-12) - 1) < 1e-6, 'shorted series inductance matches the independent fixed-potential C0 relationship')
-  const ladder = routeLadder({ extracted, endpoint: (wire, point) => `n${wire.id}_${point[0]}_${point[1]}`.replace(/[-.]/g, '_'), riseSeconds: 230e-12 })
+  const ladder = routeLadder({ extracted, endpoint: (wire, point) => endpointName(`n${wire.id}_${point[0]}_${point[1]}`), riseSeconds: 230e-12 })
   assert.ok(ladder.maximumDelaySeconds <= 23e-12)
   assert.ok(ladder.lines.some(line => line.startsWith('K')))
   assert.ok(ladder.lines.some(line => line.startsWith('RARCG')), 'dielectric loss uses causal series-RC relaxation branches')
-  const coarse = routeLadder({ extracted, endpoint: (wire, point) => `n${wire.id}_${point[0]}_${point[1]}`.replace(/[-.]/g, '_'), riseSeconds: 230e-12, refinement: 1, cellsPerRise: 2 })
+  const coarse = routeLadder({ extracted, endpoint: (wire, point) => endpointName(`n${wire.id}_${point[0]}_${point[1]}`), riseSeconds: 230e-12, refinement: 1, cellsPerRise: 2 })
   assert.ok(coarse.cells <= ladder.cells)
   assert.ok(coarse.maximumDelaySeconds <= 115e-12)
   assert.throws(() => routeLadder({ extracted, endpoint: () => '0', riseSeconds: 230e-12, refinement: 1, cellsPerRise: 0 }), /Cells per rise/)
@@ -79,10 +84,10 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
     solver.solve()
     return solver.getOutput().value
   }) (new RouteFieldsSolver({ geometry: obliqueGeometry, materials: materials, artifactPrefix: 'test' }))
-  const obliqueLadder = routeLadder({ extracted: obliqueFields, endpoint: (wire, point) => `n${wire.id}_${point[0]}_${point[1]}`.replace(/[-.]/g, '_'), riseSeconds: 230e-12 })
+  const obliqueLadder = routeLadder({ extracted: obliqueFields, endpoint: (wire, point) => endpointName(`n${wire.id}_${point[0]}_${point[1]}`), riseSeconds: 230e-12 })
   const encounters = routeOblique({ geometry: obliqueGeometry, extracted: obliqueFields, ladder: obliqueLadder, scope: obliqueScope, materials })
   assert.ok(encounters.records.some(record => String(record.policy).includes('intervening local reference')), 'neighbour on the local plane height uses recorded shielding instead of an invalid solver rectangle')
-  const transitions = routeTransitions({ circuit: obliqueCircuit, scope: obliqueScope, geometry: obliqueGeometry, endpoint: (wire, point) => `n${wire.id}_${point.join('_')}`.replace(/[-.]/g, '_'), groundPort: groundNet.source_net_id })
+  const transitions = routeTransitions({ circuit: obliqueCircuit, scope: obliqueScope, geometry: obliqueGeometry, endpoint: (wire, point) => endpointName(`n${wire.id}_${point.join('_')}`), groundPort: groundNet.source_net_id })
   assert.ok(transitions.records.some(record => record.kind === 'via' && (record.padCapacitanceF as number[]).some(value => value > 0)), 'connected annular via pads add explicit capacitance')
   const viaCircuit = await renderCoreSignals(<ViaPadBoard />).catch((error: Error & { circuitJson: CircuitJson }) => {
     assert.deepEqual(error.circuitJson.filter(record => record.type.endsWith('_error')).map(record => record.type), ['pcb_placement_error', 'pcb_placement_error'], 'expected core via-in-pad placement diagnostics only')
@@ -94,7 +99,7 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   assert.ok(viaGeometry.wires.every(wire => wire.layer === 'inner2'))
   assert.ok(routeContactFrame({ geometry: viaGeometry, scope: viaScope, layer: 'top', point: [-3, 0] }))
   assert.equal(viaGeometry.viaContacts.filter(contact => contact.layer === 'top').length, 2, 'via-in-pad contacts survive zero-length top wires')
-  const viaTransitions = routeTransitions({ circuit: viaCircuit, scope: viaScope, geometry: viaGeometry, endpoint: (wire, point) => `${wire.layer}_${point.join('_')}`.replace(/[-.]/g, '_'), groundPort: 'source_net_0' })
+  const viaTransitions = routeTransitions({ circuit: viaCircuit, scope: viaScope, geometry: viaGeometry, endpoint: (wire, point) => endpointName(`${wire.layer}_${point.join('_')}`), groundPort: 'source_net_0' })
   assert.equal(viaTransitions.records.filter(record => record.kind === 'pad').length, 2, 'BGA/SMD pad C remains attached through via-only contacts')
   assert.throws(() => routeLadder({ extracted, endpoint: () => '0', riseSeconds: 0 }), /rise time/)
 })
