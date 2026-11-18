@@ -6,14 +6,14 @@ import { causalLossPoles } from '../../src/extraction'
 /** Assemble in reverse order to verify dense-compatible column ordering. */
 function energy(values: number[][]): RouteEnergy {
   const result = new RouteEnergy(values.length)
-  for (let i = values.length - 1; i >= 0; i--) for (let j = values.length - 1; j >= 0; j--) result.add(i, j, values[i][j])
+  for (let i = values.length - 1; i >= 0; i--) for (let j = values.length - 1; j >= 0; j--) result.add({ row: i, column: j, coefficient: values[i][j] })
   return result
 }
 
 test('sparse series realization equals dense self and signed mutual coefficients', () => {
   const matrix = energy([[4e-9, 1e-9, 0], [1e-9, 9e-9, -3e-9], [0, -3e-9, 16e-9]])
   const lines: string[] = []
-  seriesEnergy(lines, 'T', ['a', 'b', 'c'], ['d', 'e', 'f'], matrix, 'L')
+  seriesEnergy({ lines, tag: 'T', before: ['a', 'b', 'c'], after: ['d', 'e', 'f'], matrix, kind: 'L' })
   assert.deepEqual(lines, ['LT0 a d 4e-9', 'LT1 b e 9e-9', 'LT2 c f 1.6e-8', 'KT0_1 LT0 LT1 0.166666666667', 'KT1_2 LT1 LT2 -0.25'])
   assert.equal(matrix.rows.reduce((sum, row) => sum + row.size, 0), 7)
   assert.deepEqual(matrix.scaled(2).entries(0), [[0, 8e-9], [1, 2e-9]])
@@ -24,7 +24,7 @@ test('normalized reciprocal resistance obeys V = R I down to tiny Foster voltage
   const currents = [2e-9, -1e-9, 3e-9]
   const voltages = matrix.map(row => row.reduce((sum, r, j) => sum + r * currents[j], 0))
   const lines: string[] = []
-  seriesEnergy(lines, 'T', ['a', 'b', 'c'], ['0', '0', '0'], energy(matrix), 'R')
+  seriesEnergy({ lines, tag: 'T', before: ['a', 'b', 'c'], after: ['0', '0', '0'], matrix: energy(matrix), kind: 'R' })
   // Independently evaluate every emitted R/G branch's KCL at the exact terminal solution.
   const nodes = new Map(['a', 'b', 'c'].map((node, i) => [node, voltages[i]]))
   nodes.set('0', 0)
@@ -42,7 +42,7 @@ test('normalized reciprocal resistance obeys V = R I down to tiny Foster voltage
     assert.ok(Math.abs(residual.get(`Tr${i}`)!) < 1e-22)
   }
   const diagonal: string[] = []
-  seriesEnergy(diagonal, 'D', ['a', 'b'], ['c', 'd'], energy([[1e-4, 0], [0, 2e-4]]), 'R')
+  seriesEnergy({ lines: diagonal, tag: 'D', before: ['a', 'b'], after: ['c', 'd'], matrix: energy([[1e-4, 0], [0, 2e-4]]), kind: 'R' })
   assert.deepEqual(diagonal, ['RD0 a c 0.0001', 'RD1 b d 0.0002'])
 })
 
@@ -52,7 +52,7 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
   const currents = [2e-3, -1e-3, 3e-3]
   const poles = causalLossPoles()
   const lines: string[] = []
-  skinEnergy(lines, 'T', ['a', 'b', 'c'], poles.map((_, p) => ['a', 'b', 'c'].map(node => `q${node}${p}`)), poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), energy(matrix), poles, [1, 1, 1], [0, 0, 0])
+  skinEnergy({ lines, tag: 'T', before: ['a', 'b', 'c'], stripStages: poles.map((_, p) => ['a', 'b', 'c'].map(node => `q${node}${p}`)), stages: poles.map((_, p) => ['a', 'b', 'c'].map(node => `${node}${p}`)), matrix: energy(matrix), poles, dc: [1, 1, 1], strip: [0, 0, 0] })
   assert.equal(lines.filter(line => / q[abc]\d /.test(line)).length, 0, 'no conductor-wall chain without a share')
   assert.equal(lines.filter(line => line.startsWith('K')).length, 0, 'no per-pole mutual inductance layers')
   for (const frequency of [1e6, 1e9, 2e10]) {
@@ -89,7 +89,7 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
   // b -> g -> h with stages (rate 100, skin 2 * 10/100) and (190, 3 * 100/190), then the 0.5e-4 remainder h -> d -> f.
   const dc = 1.5e-4 * Math.sqrt(90 / Math.PI)
   const toy = [{ rate: 10, skin: 2, dielectric: 0 }, { rate: 100, skin: 3, dielectric: 0 }]
-  assert.equal(skinEnergy(diagonal, 'D', ['a', 'b'], [['q', 'g'], ['r', 'h']], [['c', 'd'], ['e', 'f']], energy([[1e-4, 0], [0, 2e-4]]), toy, [1, dc], [0, 1.5e-4]), 0)
+  assert.equal(skinEnergy({ lines: diagonal, tag: 'D', before: ['a', 'b'], stripStages: [['q', 'g'], ['r', 'h']], stages: [['c', 'd'], ['e', 'f']], matrix: energy([[1e-4, 0], [0, 2e-4]]), poles: toy, dc: [1, dc], strip: [0, 1.5e-4] }), 0)
   /** Value of the emitted element `name`. */
   const value = (name: string): number => Number(diagonal.find(line => line.startsWith(`${name} `))!.split(' ')[3])
   assert.deepEqual(diagonal.map(line => line.split(' ').slice(0, 3).join(' ')), ['RDQ01 b g', 'LDQ01 b g', 'RDQ11 g h', 'LDQ11 g h', 'RDS00 a c', 'RDS01 h d', 'LDP00 a c', 'LDP01 h d', 'RDS10 c e', 'RDS11 d f', 'LDP10 c e', 'LDP11 d f'])
@@ -97,27 +97,27 @@ test('one coupled skin multiport obeys V = z(jw) S I at every pole and keeps unc
     ['RDS01', .5e-4 * 2], ['LDP01', .5e-4 * 2 / 10], ['RDS11', .5e-4 * 3], ['LDP11', .5e-4 * 3 / 100], ['RDS00', 1e-4 * 2]] as const) assert.ok(Math.abs(value(name) / expected - 1) < 1e-9, `${name}: ${value(name)} vs ${expected}`)
   // A coupled pair caps each own share at S_ii - |S_ij| so the shared remainder stays diagonally dominant (passive).
   const capped: string[] = []
-  assert.equal(skinEnergy(capped, 'C', ['a', 'b'], [['q', 'g'], ['r', 'h']], [['c', 'd'], ['e', 'f']], energy([[1e-4, 3e-5], [3e-5, 1e-4]]), toy, [1e-3, 1e-3], [9e-5, 5e-5]), 1)
+  assert.equal(skinEnergy({ lines: capped, tag: 'C', before: ['a', 'b'], stripStages: [['q', 'g'], ['r', 'h']], stages: [['c', 'd'], ['e', 'f']], matrix: energy([[1e-4, 3e-5], [3e-5, 1e-4]]), poles: toy, dc: [1e-3, 1e-3], strip: [9e-5, 5e-5] }), 1)
   assert.ok(Math.abs(Number(capped.find(line => line.startsWith('GCSI0 '))!.split(' ')[5]) - 1 / Math.sqrt(3e-5)) < 1e-6, 'row a keeps a 3e-5 remainder')
   assert.ok(Math.abs(Number(capped.find(line => line.startsWith('GCS0_1 '))!.split(' ')[5]) - 3e-5 / Math.sqrt(3e-5 * 5e-5)) < 1e-9, 'normalized mutual over the remainders')
 })
 
 test('sparse Maxwell shunts preserve dense row sums, pair ordering and Foster loss', () => {
   const lines: string[] = []
-  shuntEnergy(lines, 'T', ['a', 'b', 'c'], energy([[4e-12, -1e-12, 0], [-1e-12, 5e-12, -2e-12], [0, -2e-12, 6e-12]]))
+  shuntEnergy({ lines, tag: 'T', nodes: ['a', 'b', 'c'], matrix: energy([[4e-12, -1e-12, 0], [-1e-12, 5e-12, -2e-12], [0, -2e-12, 6e-12]]) })
   assert.deepEqual(lines, ['CTS0 a 0 3e-12', 'CTS1 b 0 2e-12', 'CTS2 c 0 4e-12', 'CTS3 a b 1e-12', 'CTS4 b c 2e-12'])
   const loss: string[] = []
-  shuntEnergy(loss, 'T', ['a'], energy([[1e-12]]), 1e9)
+  shuntEnergy({ lines: loss, tag: 'T', nodes: ['a'], matrix: energy([[1e-12]]), rate: 1e9 })
   assert.deepEqual(loss, ['CTS0 a TS0c 1e-12', 'RTS0 TS0c 0 1000'])
 })
 
 test('memory admission counts actual entries, including hybrid dense couplings, rather than cells', () => {
   const sparse = new RouteEnergy(2000)
-  for (let i = 0; i < 2000; i++) sparse.add(i, i, 1)
+  for (let i = 0; i < 2000; i++) sparse.add({ row: i, column: i, coefficient: 1 })
   assert.equal(sparse.rows.reduce((sum, row) => sum + row.size, 0), 2000)
   const budget = { entries: 499999 }
   const bounded = new RouteEnergy(2, budget)
-  bounded.add(0, 0, 1)
-  bounded.add(0, 0, 1)
-  assert.throws(() => bounded.add(0, 1, .1), /sparse-memory limit/)
+  bounded.add({ row: 0, column: 0, coefficient: 1 })
+  bounded.add({ row: 0, column: 0, coefficient: 1 })
+  assert.throws(() => bounded.add({ row: 0, column: 1, coefficient: .1 }), /sparse-memory limit/)
 })

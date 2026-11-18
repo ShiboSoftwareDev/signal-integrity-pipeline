@@ -17,8 +17,33 @@ function delayPerMetre(slice: ExtractedRouteSlice): number {
 interface ArcCell { wire: RouteWire; start: number; end: number; before: string; after: string }
 interface ArcWire { offset: number; length: number; cells: number[]; sign: number }
 
+/** Locate a physical point along the original (simplified) polyline, including its bends. */
+function arcPoint(distance: number, { run, arc }: { run: RouteWire[]; arc: ReadonlyMap<number, ArcWire> }): { wire: RouteWire; position: RouteXY } {
+  const wire = run.find(wire => distance <= arc.get(wire.id)!.offset + arc.get(wire.id)!.length + 1e-7) ?? run.at(-1)!
+  const entry = arc.get(wire.id)!
+  const fraction = Math.max(0, Math.min(1, (distance - entry.offset) / entry.length))
+  return { wire, position: [wire.a[0] + fraction * (wire.b[0] - wire.a[0]), wire.a[1] + fraction * (wire.b[1] - wire.a[1])] }
+}
+
+/** Project arc distance onto the wire's signed longitudinal axis. */
+function wirePosition({ wire, entry, distance }: { wire: RouteWire; entry: ArcWire; distance: number }): number {
+  if (entry.sign > 0) return wire.start + distance - entry.offset
+  return wire.end - distance + entry.offset
+}
+
+type RouteContactKey = string
+
+interface RouteLadderInput {
+  extracted: ExtractedRoutes
+  endpoint: (wire: RouteWire, point: RouteXY) => string
+  riseSeconds: number
+  refinement?: number
+  cellsPerRise?: number
+  returnPath?: RouteReturn
+}
+
 /** Integrate every local matrix energy onto delay-bounded route-arc cells, independent of curve tessellation. */
-export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: RouteWire, point: RouteXY) => string, riseSeconds: number, refinement: number = 1, cellsPerRise: number = 10, returnPath?: RouteReturn): Generator<RouteLadder, RouteLadder> {
+export function* routeLadderSteps({ extracted, endpoint, riseSeconds, refinement = 1, cellsPerRise = 10, returnPath }: RouteLadderInput): Generator<RouteLadder, RouteLadder> {
   if (!(riseSeconds > 0) || !Number.isInteger(refinement) || refinement < 1 || refinement > 4) throw new Error('Positive rise time and bounded integer spatial refinement (1..4) required')
   if (!(cellsPerRise >= .5 && cellsPerRise <= 40)) throw new Error('Cells per rise time must be in [0.5,40]')
   const lines: string[] = []
@@ -29,9 +54,9 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   const dispersionMm = 2 * riseSeconds / maximumDelayPerMetre * 1000
   const cells: ArcCell[] = []
   const arc = new Map<number, ArcWire>()
-  const contacts = new Map<string, number>()
+  const contacts = new Map<RouteContactKey, number>()
   for (const wire of wires) for (const point of [wire.a, wire.b]) {
-    const key = `${wire.layer}:${point.map(value => value.toFixed(6)).join(',')}`
+    const key = `${wire.layer}:${point.map(coordinate => coordinate.toFixed(6)).join(',')}`
     contacts.set(key, (contacts.get(key) ?? 0) + 1)
   }
   let cursor = 0
@@ -42,32 +67,27 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
     while (cursor < wires.length) {
       const wire = wires[cursor]
       const previous = run.at(-1)!
-      const junction = contacts.get(`${wire.layer}:${wire.a.map(value => value.toFixed(6)).join(',')}`) ?? 0
+      const junction = contacts.get(`${wire.layer}:${wire.a.map(coordinate => coordinate.toFixed(6)).join(',')}`) ?? 0
       if (wire.aPort || junction > 2 || wire.trace !== seed.trace || wire.layer !== seed.layer || wire.width !== seed.width || Math.hypot(wire.a[0] - previous.b[0], wire.a[1] - previous.b[1]) > 1e-6) break
       run.push(wire)
       cursor++
     }
     let length = 0
     for (const wire of run) {
-      arc.set(wire.id, { offset: length, length: wire.end - wire.start, cells: [], sign: (wire.b[0] - wire.a[0]) * wire.u[0] + (wire.b[1] - wire.a[1]) * wire.u[1] > 0 ? 1 : -1 })
+      let sign = -1
+      if ((wire.b[0] - wire.a[0]) * wire.u[0] + (wire.b[1] - wire.a[1]) * wire.u[1] > 0) sign = 1
+      arc.set(wire.id, { offset: length, length: wire.end - wire.start, cells: [], sign })
       length += wire.end - wire.start
     }
     // Ladder dispersion accumulates along a run: phase error ~ delay x cell delay^2. Runs longer than two rise times
     // shrink their cells by sqrt(two rise times / run delay), which keeps the edge ripple independent of length.
     const count = Math.max(1, Math.ceil(length / targetMm * Math.max(1, Math.sqrt(length / dispersionMm))))
     const indices = Array.from({ length: count }, (_, i) => cells.length + i)
-    /** Locate a physical point along the original (simplified) polyline, including its bends. */
-    const point = (distance: number): { wire: RouteWire; position: RouteXY } => {
-      const wire = run.find(wire => distance <= arc.get(wire.id)!.offset + arc.get(wire.id)!.length + 1e-7) ?? run.at(-1)!
-      const entry = arc.get(wire.id)!
-      const fraction = Math.max(0, Math.min(1, (distance - entry.offset) / entry.length))
-      return { wire, position: [wire.a[0] + fraction * (wire.b[0] - wire.a[0]), wire.a[1] + fraction * (wire.b[1] - wire.a[1])] }
-    }
     for (let i = 0; i < count; i++) {
       const start = length * i / count
       const end = length * (i + 1) / count
-      const a = point(start)
-      const b = point(end)
+      const a = arcPoint(start, { run, arc })
+      const b = arcPoint(end, { run, arc })
       cells.push({ wire: seed, start, end, before: endpoint(a.wire, a.position), after: endpoint(b.wire, b.position) })
     }
     for (const wire of run) {
@@ -75,10 +95,12 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       entry.cells = indices
       const records = indices.flatMap(index => {
         const cell = cells[index]
-        return [cell.start, cell.end].filter(position => position >= entry.offset - 1e-7 && position <= entry.offset + entry.length + 1e-7).map(position => ({
-          position: entry.sign > 0 ? wire.start + position - entry.offset : wire.end - position + entry.offset,
-          node: position === cell.start ? cell.before : cell.after,
-        }))
+        return [cell.start, cell.end].flatMap(distance => {
+          if (!(distance >= entry.offset - 1e-7 && distance <= entry.offset + entry.length + 1e-7)) return []
+          let node = cell.after
+          if (distance === cell.start) node = cell.before
+          return [{ position: wirePosition({ wire, entry, distance }), node }]
+        })
       })
       if (!records.length) {
         const middle = entry.offset + entry.length / 2
@@ -93,22 +115,23 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
   const nodeIds = new Map(nodeNames.map((node, i) => [node, i]))
   /** Bound actual stored coupling terms, rather than unrelated route cells. */
   const budget = { entries: 0 }
-  /** Allocate only nonzero energy terms. */
-  const zero = (size: number): RouteEnergy => new RouteEnergy(size, budget)
-  const R = zero(cells.length)
-  const L = zero(cells.length)
-  const skin = zero(cells.length)
+  const R = new RouteEnergy(cells.length, budget)
+  const L = new RouteEnergy(cells.length, budget)
+  const skin = new RouteEnergy(cells.length, budget)
   const strip = cells.map(() => 0)
-  const C = zero(nodeNames.length)
-  const D = zero(nodeNames.length)
+  const C = new RouteEnergy(nodeNames.length, budget)
+  const D = new RouteEnergy(nodeNames.length, budget)
   for (const slice of extracted.slices) {
-    const series = referenceSeries(slice.line, slice.wires.flatMap((wire, i) => arc.has(wire.id) ? [] : [i]))
+    const series = referenceSeries(slice.line, slice.wires.flatMap((wire, i) => {
+      if (arc.has(wire.id)) return []
+      return [i]
+    }))
     const cuts = [slice.start, slice.end]
     for (const wire of slice.wires) {
       const entry = arc.get(wire.id)
       if (!entry) continue
       for (const index of entry.cells) for (const distance of [cells[index].start, cells[index].end]) {
-        const position = entry.sign > 0 ? wire.start + distance - entry.offset : wire.end - distance + entry.offset
+        const position = wirePosition({ wire, entry, distance })
         if (position > slice.start + 1e-8 && position < slice.end - 1e-8) cuts.push(position)
       }
     }
@@ -120,23 +143,27 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       const entries = slice.wires.map(wire => {
         const entry = arc.get(wire.id)
         if (!entry) return undefined
-        const distance = entry.offset + (entry.sign > 0 ? middle - wire.start : wire.end - middle)
+        let local = wire.end - middle
+        if (entry.sign > 0) local = middle - wire.start
+        const distance = entry.offset + local
         const index = entry.cells.find(index => distance >= cells[index].start - 1e-7 && distance <= cells[index].end + 1e-7)!
         if (index === undefined) throw new Error('Route arc cell did not cover a geometric section')
-        return { index, sign: entry.sign, before: nodeIds.get(entry.sign > 0 ? cells[index].before : cells[index].after), after: nodeIds.get(entry.sign > 0 ? cells[index].after : cells[index].before) }
+        const { before, after } = cells[index]
+        if (entry.sign > 0) return { index, sign: entry.sign, before: nodeIds.get(before), after: nodeIds.get(after) }
+        return { index, sign: entry.sign, before: nodeIds.get(after), after: nodeIds.get(before) }
       })
       for (let i = 0; i < entries.length; i++) for (let j = 0; j < entries.length; j++) {
         const a = entries[i]
         const b = entries[j]
         if (!a || !b) continue
         const signedLength = metres * a.sign * b.sign
-        R.add(a.index, b.index, slice.line.dcResistance[i][j] * signedLength)
-        L.add(a.index, b.index, series.L[i][j] * signedLength)
-        skin.add(a.index, b.index, series.skinResistance[i][j] * signedLength)
+        R.add({ row: a.index, column: b.index, coefficient: slice.line.dcResistance[i][j] * signedLength })
+        L.add({ row: a.index, column: b.index, coefficient: series.L[i][j] * signedLength })
+        skin.add({ row: a.index, column: b.index, coefficient: series.skinResistance[i][j] * signedLength })
         if (i === j) strip[a.index] += series.stripSkinResistance[i][i] * metres
         for (const side of ['before', 'after'] as const) if (a[side] !== undefined && b[side] !== undefined) {
-          C.add(a[side]!, b[side]!, slice.line.C[i][j] * metres / 2)
-          D.add(a[side]!, b[side]!, slice.line.dielectricLoss[i][j] * metres / 2)
+          C.add({ row: a[side]!, column: b[side]!, coefficient: slice.line.C[i][j] * metres / 2 })
+          D.add({ row: a[side]!, column: b[side]!, coefficient: slice.line.dielectricLoss[i][j] * metres / 2 })
         }
       }
     }
@@ -157,42 +184,48 @@ export function* routeLadderSteps(extracted: ExtractedRoutes, endpoint: (wire: R
       const offset = path.slice(0, path.indexOf(cell.wire)).reduce((sum, wire) => sum + wire.end - wire.start, 0)
       const start = (offset + cell.start) / total
       const end = (offset + cell.end) / total
-      return { index, weight: (forward ? 1 : -1) * (end - start), sign: forward ? 1 : -1, start: forward ? start : 1 - end, end: forward ? end : 1 - start }
+      if (forward) return { index, weight: end - start, sign: 1, start, end }
+      return { index, weight: -(end - start), sign: -1, start: 1 - end, end: 1 - start }
     })
     // Congruence of averaged longitudinal currents preserves the positive return energy.
     for (let i = 0; i < cells.length; i++) for (let j = 0; j < cells.length; j++) {
       const a = weights[i]
       const b = weights[j]
-      const overlap = Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start)) * a.sign * b.sign
-      const weight = returnPath.model === 'series' ? overlap : a.weight * b.weight
-      R.set(i, j, (returnPath.model === 'series' ? 0 : R.rows[i].get(j) ?? 0) + weight * returnPath.R[a.index][b.index])
-      L.set(i, j, (returnPath.model === 'series' ? 0 : L.rows[i].get(j) ?? 0) + weight * returnPath.L[a.index][b.index])
-      if (returnPath.model === 'series') skin.set(i, j, 0)
+      if (returnPath.model === 'series') {
+        const overlap = Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start)) * a.sign * b.sign
+        R.set({ row: i, column: j, coefficient: overlap * returnPath.R[a.index][b.index] })
+        L.set({ row: i, column: j, coefficient: overlap * returnPath.L[a.index][b.index] })
+        skin.set({ row: i, column: j, coefficient: 0 })
+        continue
+      }
+      const weight = a.weight * b.weight
+      R.set({ row: i, column: j, coefficient: (R.rows[i].get(j) ?? 0) + weight * returnPath.R[a.index][b.index] })
+      L.set({ row: i, column: j, coefficient: (L.rows[i].get(j) ?? 0) + weight * returnPath.L[a.index][b.index] })
     }
   }
   const before = cells.map(cell => cell.before)
   const after = cells.map(cell => cell.after)
   let current = cells.map((_, i) => `ARCd${i}`)
   let cappedSkinCells = 0
-  seriesEnergy(lines, 'ARCD', before, current, R, 'R')
+  seriesEnergy({ lines, tag: 'ARCD', before, after: current, matrix: R, kind: 'R' })
   if (returnPath?.model !== 'series') {
     const stripStages = causalLossPoles().map((_, p) => cells.map((_, i) => `ARCq${p}n${i}`))
     const stages = causalLossPoles().map((_, p) => cells.map((_, i) => `ARCp${p}n${i}`))
-    cappedSkinCells = skinEnergy(lines, 'ARC', current, stripStages, stages, skin, causalLossPoles(), dc, strip)
+    cappedSkinCells = skinEnergy({ lines, tag: 'ARC', before: current, stripStages, stages, matrix: skin, poles: causalLossPoles(), dc, strip })
     current = stages.at(-1)!
   }
-  seriesEnergy(lines, 'ARCL', current, after, L, 'L')
+  seriesEnergy({ lines, tag: 'ARCL', before: current, after, matrix: L, kind: 'L' })
   const dielectricAtReference = causalLossResponse(1e9).dielectricCapacitance
   const capacitance = C.scaled(1)
-  for (const [i, row] of D.rows.entries()) for (const [j, value] of row) capacitance.rows[i].set(j, (C.rows[i].get(j) ?? 0) - dielectricAtReference * value)
-  shuntEnergy(lines, 'ARCC', nodeNames, capacitance)
-  for (const [p, pole] of causalLossPoles().entries()) shuntEnergy(lines, `ARCG${p}`, nodeNames, D.scaled(pole.dielectric), pole.rate)
+  for (const [i, row] of D.rows.entries()) for (const [j, loss] of row) capacitance.rows[i].set(j, (C.rows[i].get(j) ?? 0) - dielectricAtReference * loss)
+  shuntEnergy({ lines, tag: 'ARCC', nodes: nodeNames, matrix: capacitance })
+  for (const [p, pole] of causalLossPoles().entries()) shuntEnergy({ lines, tag: `ARCG${p}`, nodes: nodeNames, matrix: D.scaled(pole.dielectric), rate: pole.rate })
   return { lines, cells: cells.length, maximumDelaySeconds: Math.max(...cells.map(cell => (cell.end - cell.start) / 1000 * maximumDelayPerMetre)), cappedSkinCells, wireNodes }
 }
 
 /** Drain the canonical ladder assembly when interactive stepping is unnecessary. */
-export function routeLadder(extracted: ExtractedRoutes, endpoint: (wire: RouteWire, point: RouteXY) => string, riseSeconds: number, refinement: number = 1, cellsPerRise: number = 10, returnPath?: RouteReturn): RouteLadder {
-  const steps = routeLadderSteps(extracted, endpoint, riseSeconds, refinement, cellsPerRise, returnPath)
+export function routeLadder(input: RouteLadderInput): RouteLadder {
+  const steps = routeLadderSteps(input)
   let result = steps.next()
   while (!result.done) result = steps.next()
   return result.value

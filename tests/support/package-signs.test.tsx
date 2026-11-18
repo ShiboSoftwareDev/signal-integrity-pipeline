@@ -16,7 +16,7 @@ test('TSX positive vendor capacitance magnitudes require a visible, hashed Maxwe
   const input = { definition: { source: { file: 'fixture.ibs' }, component: 'fixture', pinMap, corner: 'typical' as const, packagePolicy: 'vendor' as const },
     run: { duration: '1ns', pinStates: { [pinMap.A1]: { mode: 'input' as const }, [pinMap.B1]: { mode: 'input' as const } }, stimuli: {} } }
   const log = test.mock.method(console, 'warn', (..._args: unknown[]): void => {})
-  const converted = convertPackaged(bytes, input)
+  const converted = convertPackaged({ bytes, input })
   const warning = converted.warnings.find(message => message.includes('negated 6 off-diagonal capacitance entries'))
   assert.ok(warning, 'both symmetric entries of each nonzero pair are counted')
   assert.ok(warning.includes('fixture.ibs') && warning.includes(sha256(bytes)) && warning.includes('coupled'))
@@ -24,9 +24,9 @@ test('TSX positive vendor capacitance magnitudes require a visible, hashed Maxwe
   assert.equal(converted.sourceSha256, sha256(bytes), 'evidence hashes the unchanged vendor bytes')
   assert.match(converted.source, /CPKG0_1a PAD0 PAD1 2\.5e-13/)
   for (const invalid of [source.replace('-.2p', '.2p'), source.replace('3p -.2p -.5p', '.1p .2p .5p').replaceAll('-.1p', '.1p')]) {
-    assert.throws(() => convertPackaged(new TextEncoder().encode(invalid), input), /Maxwell capacitance|positive definite/)
+    assert.throws(() => convertPackaged({ bytes: new TextEncoder().encode(invalid), input }), /Maxwell capacitance|positive definite/)
   }
-  const unchanged = convertPackaged(new TextEncoder().encode(source), input)
+  const unchanged = convertPackaged({ bytes: new TextEncoder().encode(source), input })
   assert.deepEqual(converted.metadata.packageData.matrices?.C, unchanged.metadata.packageData.matrices?.C)
   assert.ok(!unchanged.warnings.some(message => message.includes('negated')))
 })

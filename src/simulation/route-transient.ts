@@ -37,9 +37,9 @@ export class RouteTransientSolver extends BaseSolver {
       const rows = spiceProbeRows(run.outputs['waveform.raw'], compiled.probes)
       if (rows[0][0] < 0 || rows[0][0] > Math.max(compiled.stepSeconds, compiled.durationSeconds * 1e-8)) fail('simulation_start', `${compiled.name}: solver output omits the beginning of the transient`)
       if (Math.abs(rows.at(-1)![0] - compiled.durationSeconds) > compiled.durationSeconds * 1e-8) fail('simulation_duration', `${compiled.name}: solver did not complete the declared duration`)
-      const value = snapshot({ kind: 'completed' as const, qualification: 'candidate-unqualified' as const, timestampsSeconds: rows.map(row => row[0]), probes: compiled.probes.map((probe, i) => ({ name: probe.name, sourcePortId: probe.signalSourceId, voltageLevels: rows.map(row => row[i + 1]) })) })
-      this.output = { value, artifacts: [...execution.artifacts, scope.json('capture.json', { ...value, waveformSha256: sha256(run.outputs['waveform.raw']) })] }
-      this.stats = { invocations: 1, samples: rows.length, probes: value.probes.length, elapsedMs: performance.now() - started }
+      const capture = snapshot({ kind: 'completed' as const, qualification: 'candidate-unqualified' as const, timestampsSeconds: rows.map(row => row[0]), probes: compiled.probes.map((probe, i) => ({ name: probe.name, sourcePortId: probe.signalSourceId, voltageLevels: rows.map(row => row[i + 1]) })) })
+      this.output = { value: capture, artifacts: [...execution.artifacts, scope.json('capture.json', { ...capture, waveformSha256: sha256(run.outputs['waveform.raw']) })] }
+      this.stats = { invocations: 1, samples: rows.length, probes: capture.probes.length, elapsedMs: performance.now() - started }
       this.solved = true
     } finally {
       this.running = false
@@ -57,6 +57,8 @@ export class RouteTransientSolver extends BaseSolver {
     const { compiled, board } = this.input
     const routes = compiled.evidence.routes as { from: string; to: string }[] | undefined
     const probes = compiled.probes.map(probe => ({ name: probe.name, sourcePortId: probe.signalSourceId, near: Boolean(routes?.some(route => route.from === probe.signalSourceId)) }))
-    return routeWaveformDrawing({ board, probes, capture: this.output?.value, durationSeconds: compiled.durationSeconds, threshold: this.input.threshold, running: this.running, error: this.failed ? (this.error ?? 'Transient failed') : undefined })
+    let error: string | undefined
+    if (this.failed) error = this.error ?? 'Transient failed'
+    return routeWaveformDrawing({ board, probes, capture: this.output?.value, durationSeconds: compiled.durationSeconds, threshold: this.input.threshold, running: this.running, error })
   }
 }

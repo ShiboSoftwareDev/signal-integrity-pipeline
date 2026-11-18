@@ -23,9 +23,35 @@ export function ibisNumber(token: string): number {
   const scales: Record<string, number> = { '': 1, T: 1e12, G: 1e9, M: 1e6, k: 1e3, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15 }
   return Number(match[1]) * scales[match[2]]
 }
+/** Resolve a vendor rail by [Pin Mapping], or a unique POWER/GND pin. */
+function referenceRail({ model, component, pin, port }: Pick<InspectedPin, 'model' | 'component' | 'pin' | 'port'>, role: 'ground' | 'power'): string {
+  const refs = model.ibis_pin_name_to_reference_source_port_ids?.[pin]
+  const buses = component.pinMapping[pin]
+  let explicit = refs?.pullup_reference_source_port_id ?? refs?.power_clamp_reference_source_port_id
+  let bus = buses?.pullup
+  let railModel = 'power'
+  if (role === 'ground') {
+    explicit = refs?.pulldown_reference_source_port_id ?? refs?.ground_clamp_reference_source_port_id
+    bus = buses?.pulldown
+    railModel = 'gnd'
+  }
+  if (explicit) return explicit
+  const candidates = Object.entries(component.pins).flatMap(([id, candidate]) => {
+    if (bus && candidate.signal !== bus) return []
+    if (!bus && candidate.model.toLowerCase() !== railModel) return []
+    const sourcePortId = model.ibis_pin_name_to_source_port_id[id]
+    if (!sourcePortId) return []
+    return [sourcePortId]
+  })
+  if (candidates.length !== 1) throw new Error(`${port}: IBIS ${role} reference is ambiguous; provide the chip's reference mapping`)
+  return candidates[0]
+}
+
+type SourcePortId = InspectedPin['port']
+
 /** Resolve physical pins and reference rails; ambiguous mappings always fail. */
-export function inspectPins(circuit: CircuitJson, sources: IbisSources): Map<string, InspectedPin> {
-  const pins = new Map<string, InspectedPin>()
+export function inspectPins(circuit: CircuitJson, sources: IbisSources): Map<SourcePortId, InspectedPin> {
+  const pins = new Map<SourcePortId, InspectedPin>()
   for (const model of circuit.filter(r => r.type === 'simulation_ibis_model')) {
     const { text } = loadModelSource({ ...model, pipelineId: model.simulation_ibis_model_id }, sources)
     const document = parseIbis(text)
@@ -37,20 +63,11 @@ export function inspectPins(circuit: CircuitJson, sources: IbisSources): Map<str
       if (!physical) throw new Error(`${port}: physical IBIS pin ${pin} is missing`)
       if (/^(power|gnd|nc)$/i.test(physical.model)) continue
       const choices = document.selectors[physical.model] ?? [physical.model]
-      const name = model.ibis_pin_name_to_model_name?.[pin] ?? (choices.length === 1 ? choices[0] : undefined)
+      let name = model.ibis_pin_name_to_model_name?.[pin]
+      if (name == null && choices.length === 1) name = choices[0]
       if (!name || !choices.includes(name)) throw new Error(`${port}: choose an IBIS model from ${choices.join(', ')}`)
-      const refs = model.ibis_pin_name_to_reference_source_port_ids?.[pin]
-      /** Resolve a vendor rail by [Pin Mapping], or a unique POWER/GND pin. */
-      const rail = (role: 'ground' | 'power'): string => {
-        const explicit = role === 'ground' ? refs?.pulldown_reference_source_port_id ?? refs?.ground_clamp_reference_source_port_id : refs?.pullup_reference_source_port_id ?? refs?.power_clamp_reference_source_port_id
-        if (explicit) return explicit
-        const named = role === 'ground' ? component.pinMapping[pin]?.pulldown : component.pinMapping[pin]?.pullup
-        const candidates = Object.entries(component.pins).filter(([, p]) => named ? p.signal === named : p.model.toLowerCase() === (role === 'ground' ? 'gnd' : 'power')).map(([id]) => mapping[id]).filter(Boolean)
-        if (candidates.length !== 1) throw new Error(`${port}: IBIS ${role} reference is ambiguous; provide the chip's reference mapping`)
-        return candidates[0]
-      }
       if (pins.has(port)) throw new Error(`${port}: more than one IBIS pin binding`)
-      pins.set(port, { port, pin, model, component, document, buffer: document.getBuffer(name), text, ground: rail('ground'), power: rail('power') })
+      pins.set(port, { port, pin, model, component, document, buffer: document.getBuffer(name), text, ground: referenceRail({ model, component, pin, port }, 'ground'), power: referenceRail({ model, component, pin, port }, 'power') })
     }
   }
   return pins
@@ -62,27 +79,27 @@ export function modelText(pin: InspectedPin): string {
   if (!section) throw new Error(`IBIS model body ${pin.buffer.name} missing`)
   return section
 }
+/** First interpolated crossing of a measured edge voltage. */
+function edgeCrossing(samples: readonly (readonly [number, number])[], target: number): number | undefined {
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1]
+    const b = samples[i]
+    if ((a[1] - target) * (b[1] - target) <= 0 && a[1] !== b[1]) return a[0] + (target - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+  }
+  return undefined
+}
+
 /** Fastest measured 10–90% output edge at the typical corner, or the [Ramp] dV/dt. */
 export function edgeSeconds(pin: InspectedPin): number {
   const edges: number[] = []
   for (const waveform of pin.buffer.waveforms) {
-    const data = waveform.data.filter(row => row[1] !== null).map(row => [row[0], row[1]!] as const)
-    if (data.length < 2) continue
-    const first = data[0][1]
-    const last = data.at(-1)![1]
+    const samples = waveform.data.filter(row => row[1] !== null).map(row => [row[0], row[1]!] as const)
+    if (samples.length < 2) continue
+    const first = samples[0][1]
+    const last = samples.at(-1)![1]
     if (Math.abs(last - first) < 1e-6) continue
-    /** First interpolated crossing of a fraction of the measured edge. */
-    const crossing = (fraction: number): number | undefined => {
-      const target = first + (last - first) * fraction
-      for (let i = 1; i < data.length; i++) {
-        const a = data[i - 1]
-        const b = data[i]
-        if ((a[1] - target) * (b[1] - target) <= 0 && a[1] !== b[1]) return a[0] + (target - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
-      }
-      return undefined
-    }
-    const a = crossing(.1)
-    const b = crossing(.9)
+    const a = edgeCrossing(samples, first + (last - first) * .1)
+    const b = edgeCrossing(samples, first + (last - first) * .9)
     if (a !== undefined && b !== undefined && b > a) edges.push(b - a)
   }
   if (!edges.length) {

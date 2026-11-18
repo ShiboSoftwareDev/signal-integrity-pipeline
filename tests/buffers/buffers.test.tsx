@@ -17,8 +17,8 @@ test('real vendor packages and optional references survive public preflight; sou
   const ibis = { 'models/sn74lvc1g04.ibs': bytes }
   const [prepared] = prepareBlocks({ circuitJson: await renderSignals(<Single />), sources: ibis })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls)
-  const admitted = admitBuffers(declarations.models, ibis, {}, rootScope('buffers'))
+  const declarations = generalDeclarations({ circuit: prepared.circuit, geometry, modeling: prepared.settings, controls: prepared.controls })
+  const admitted = admitBuffers({ models: declarations.models, ibisSources: ibis, scope: rootScope('buffers') })
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)
   assert.doesNotThrow(() => bindExperiments({ ...declarations, electrical: electricalSources(prepared.circuit, prepared.settings, declarations.nodes) }, geometry, compiled))
   for (const model of compiled[0]) {

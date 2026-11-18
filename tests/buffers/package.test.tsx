@@ -21,7 +21,7 @@ async function fixture(differential: boolean = false): Promise<{ bytes: Uint8Arr
   const bytes = await readFile(`${modelDir}/${file}`)
   const [prepared] = prepareBlocks({ circuitJson: await renderSignals(differential ? <Differential /> : <Single />), sources: { [`models/${file}`]: bytes } })
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  return { bytes, prepared, geometry, declarations: generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls) }
+  return { bytes, prepared, geometry, declarations: generalDeclarations({ circuit: prepared.circuit, geometry, modeling: prepared.settings, controls: prepared.controls }) }
 }
 
 test('ideal die rails preserve every pin package at the typical corner', { skip: !modelDir }, async () => {
@@ -30,7 +30,7 @@ test('ideal die rails preserve every pin package at the typical corner', { skip:
     const document = parseIbis(new TextDecoder().decode(bytes))
     for (const model of declarations.models) {
       const input = modelRunDefinition(model, declarations.plans[0])
-      const converted = convertPackaged(bytes, input)
+      const converted = convertPackaged({ bytes, input })
       const die = convertIbisModelToSpice(bytes, { ...input.definition, packagePolicy: 'omit' }, input.run)
       const component = document.components[input.definition.component]
       for (const [i, [terminal, port]] of Object.entries(converted.spicePinMapping).entries()) {
@@ -69,7 +69,7 @@ test('ideal die rails preserve every pin package at the typical corner', { skip:
 test('native single-ended vendor buffers settle under section refinement with ideal die rails', { skip: !modelDir || !process.env.NGSPICE_BIN }, async () => {
   const { bytes, prepared, geometry, declarations } = await fixture()
   const plan = { ...declarations.plans[0], durationSeconds: 3.6e-7, startTimeSeconds: 3.49e-7 }
-  const models = declarations.models.map(model => ({ ...convertPackaged(bytes, modelRunDefinition(model, plan)), name: model.ibis_component_name }))
+  const models = declarations.models.map(model => ({ ...convertPackaged({ bytes, input: modelRunDefinition(model, plan) }), name: model.ibis_component_name }))
   const electrical = electricalSources(prepared.circuit, prepared.settings, declarations.nodes)
   const solve = createNativeSolver({ timeoutMs: 30000, tools: { ngspice: process.env.NGSPICE_BIN } })
   // Fixed native-extracted totals from the 10 mm fixture's section investigation.
@@ -85,7 +85,7 @@ test('native single-ended vendor buffers settle under section refinement with id
     traces.push(rows)
   }
   const gate = Math.max(plan.startTimeSeconds, traces[0][0][0], traces[1][0][0])
-  const check = waveformConvergence(traces[0], traces[1], gate, [3.3])
+  const check = waveformConvergence({ before: traces[0], after: traces[1], gate, idle: [3.3] })
   assert.equal(check.accepted, true, JSON.stringify(check))
   assert.ok(check.probes[0].peak_change_v < .002, 'receiver section peak changes by less than 2 mV')
 })

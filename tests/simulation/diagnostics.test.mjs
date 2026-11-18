@@ -16,7 +16,7 @@ const declare=(mutate=()=>{},m=undefined)=>impl=>{
   const {cj,m:base,controls}=fixture()
   const modeling=m?m(base):base
   const out=mutate(cj,controls.run)??cj
-  return impl.generalDeclarations(out,impl.geometry(out,modeling),modeling,controls)
+  return impl.generalDeclarations({ circuit: out,geometry: impl.geometry(out,modeling),modeling,controls })
 }
 const electrical=(mutate,m=base=>base)=>impl=>{
   const {cj,m:base}=fixture()
@@ -28,7 +28,7 @@ const electrical=(mutate,m=base=>base)=>impl=>{
 const deck=(extraction,models=[{source:'.subckt BUFFER P R\nRTEST P R 1000\n.ends BUFFER\n',spicePinMapping:{P:'p0',R:'g0'},name:'test'}])=>impl=>{
   const {cj,m,controls}=fixture()
   const g=impl.geometry(cj,m)
-  const d=impl.generalDeclarations(cj,g,m,controls)
+  const d=impl.generalDeclarations({ circuit: cj,geometry: g,modeling: m,controls })
   return impl.generalSimulationSpice(d.plans[0],g,m,extraction,models,d.nodes,impl.electricalSources(cj,m,d.nodes))
 }
 const identity=[[1,0],[0,1]]
@@ -108,7 +108,7 @@ test('simulation codes and messages equal the pre-module implementation', () => 
     cj.push({type:'source_port',source_port_id:'x0',source_component_id:'u0',name:'NC'})
     one(cj,'simulation_voltage_probe',p=>p.simulation_voltage_probe_id==='single').signal_input_source_port_id='x0'
     const g=impl.geometry(cj,m)
-    const d=impl.generalDeclarations(cj,g,m,controls)
+    const d=impl.generalDeclarations({ circuit: cj,geometry: g,modeling: m,controls })
     return impl.validateProbeScope(d.plans[0],g,[],d.nodes,impl.electricalSources(cj,m,d.nodes))
   }],
   ]) {
@@ -149,7 +149,7 @@ test('orphan ideal sources and unsupplied IBIS reference rails fail preflight',(
   const nodes=circuitNodes(cj,g,m)
   assert.throws(()=>electricalSources(cj,m,nodes),/floating_source.*ORPHAN/)
   const clean=cj.filter(e=>e.type!=='simulation_voltage_source')
-  const declarations=generalDeclarations(clean,g,m,controls)
+  const declarations=generalDeclarations({ circuit: clean,geometry: g,modeling: m,controls })
   const electrical=electricalSources(clean,m,declarations.nodes)
   const models=[{name:'test',spicePinMapping:{PAD:'p0',REF:'vspos'},metadata:{pins:[{physicalPin:'1',references:{pullup:'vspos'}}]}}]
   assert.throws(()=>validateProbeScope(declarations.plans[0],g,models,declarations.nodes,electrical),/floating_reference.*pullup/)

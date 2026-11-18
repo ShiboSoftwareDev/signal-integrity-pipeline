@@ -64,7 +64,7 @@ test('engine rejection is a failed async stage without a capture', async () => {
 /** Maximum piecewise-linear difference over the union of both adaptive time grids. */
 function maximumDifference(left: number[][], right: number[][]): number {
   const times = [...new Set([...left, ...right].map(row => row[0]))].sort((a, b) => a - b)
-  return Math.max(...times.flatMap(time => left[0].slice(1).map((_, i) => Math.abs(sampleVoltage(left, i + 1, time) - sampleVoltage(right, i + 1, time)))))
+  return Math.max(...times.flatMap(time => left[0].slice(1).map((_, i) => Math.abs(sampleVoltage({ rows: left, column: i + 1, time }) - sampleVoltage({ rows: right, column: i + 1, time })))))
 }
 
 /** The removed control deck exists only as the historical comparison oracle in this test. */
@@ -78,7 +78,7 @@ function oldControl(deck: RoutedDeck): string {
     for (const [i, probe] of deck.probes.entries()) lines.push(`let probe${i} = v(${probe.signalNode})${probe.referenceNode === '0' ? '' : `-v(${probe.referenceNode})`}`)
     lines.push(`wrdata waveform.dat ${deck.probes.map((_, i) => `probe${i}`).join(' ')}`, `echo SI_PROGRESS ${time}`)
   }
-  return deck.deck.replace(routedControl(saved, deck.stepSeconds, deck.durationSeconds).join('\n'), [...lines, 'quit', '.endc', '.end'].join('\n'))
+  return deck.deck.replace(routedControl({ saved, step: deck.stepSeconds, duration: deck.durationSeconds }).join('\n'), [...lines, 'quit', '.endc', '.end'].join('\n'))
 }
 
 test('real TSX two-trace: old/new native deck parity', { skip: process.env.SI_NATIVE_TESTS !== '1' && 'Set SI_NATIVE_TESTS=1 and IBIS_MODEL_DIR for bounded sequential native checks' }, async context => {

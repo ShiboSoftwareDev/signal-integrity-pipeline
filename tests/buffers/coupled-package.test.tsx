@@ -20,7 +20,7 @@ test('TSX coupled package replaces scalar values, preserves ideal die rails and 
   const pinMap = model.ibis_pin_name_to_source_port_id
   const input = { definition: { source: { content: source }, component: 'fixture', pinMap, corner: 'typical' as const, packagePolicy: 'vendor' as const },
     run: { duration: '1ns', pinStates: { [pinMap.A1]: { mode: 'input' as const }, [pinMap.B1]: { mode: 'input' as const } }, stimuli: {} } }
-  const converted = convertPackaged(new TextEncoder().encode(source), input)
+  const converted = convertPackaged({ bytes: new TextEncoder().encode(source), input })
   assert.match(converted.source, /KPKG\d+_\d+ LPKG\d+ LPKG\d+ -0\.353553/)
   assert.match(converted.source, /HPKG/)
   assert.match(converted.source, /CPKG0_1a PAD0 PAD1 2\.5e-13/)
@@ -31,7 +31,7 @@ test('TSX coupled package replaces scalar values, preserves ideal die rails and 
   assert.deepEqual(converted.metadata.packageData.matrices?.pins, ['A1', 'B1', 'V1', 'G1'])
   assert.equal(converted.metadata.packageData.mappedPins.find(pin => pin.physicalPin === 'A1')?.resistanceOhms, 1)
   assert.ok(converted.warnings.some(warning => /A1.*resistance.*9.*1/.test(warning)))
-  assert.throws(() => convertPackaged(new TextEncoder().encode(source.replace('[Define Package Model] coupled', '[Define Package Model] absent')), { ...input, definition: { ...input.definition, source: { file: 'fixture.ibs' } } }), /missing.*scalar fallback is forbidden/i)
+  assert.throws(() => convertPackaged({ bytes: new TextEncoder().encode(source.replace('[Define Package Model] coupled', '[Define Package Model] absent')), input: { ...input, definition: { ...input.definition, source: { file: 'fixture.ibs' } } } }), /missing.*scalar fallback is forbidden/i)
   // IBIS 6.1 section 7: unlisted pins use [Pin] then [Package], while
   // an unlisted member of a modeled [Pin Mapping] rail bus is merged.
   const partial = source.slice(0, source.indexOf('[Define Package Model]')) + `[Define Package Model] coupled
@@ -63,7 +63,7 @@ A1
 [End]`
   const partialSource = partial.replace('G1 VSS GND 6 6n 6p', 'G1 VSS GND NA NA NA')
   const variantInput = { ...input, definition: { ...input.definition, source: { file: 'fixture.ibs' } } }
-  const unlisted = convertPackaged(new TextEncoder().encode(partialSource), variantInput)
+  const unlisted = convertPackaged({ bytes: new TextEncoder().encode(partialSource), input: variantInput })
   assert.deepEqual(unlisted.metadata.packageData.matrices?.pins, ['A1', 'B1'])
   assert.match(unlisted.source, /RPKGU2 REF0 \S+ 7\n/)
   assert.match(unlisted.source, /LPKGU2 \S+ \S+ 7(?:\.0+1)?e-9\n/)
@@ -87,8 +87,8 @@ V2 NC VDD NC NC
 [Model] input`).replace('[Pin] signal_name model_name R_pin L_pin C_pin', '[Pin] signal_name model_name R_pin L_pin C_pin\nG2 VSS GND\nV2 VDD POWER')
   const busStart = busSource.indexOf('[Define Package Model]')
   const mergedSource = busSource.slice(0, busStart) + busSource.slice(busStart).replaceAll('G1', 'G2').replaceAll('V1', 'V2')
-  const merged = convertPackaged(new TextEncoder().encode(mergedSource), { ...variantInput, definition: { ...variantInput.definition,
-    references: Object.fromEntries(['A1', 'B1'].map(pin => [pin, { pullup: pinMap.V1, powerClamp: pinMap.V1, pulldown: pinMap.G1, groundClamp: pinMap.G1 }])) } })
+  const merged = convertPackaged({ bytes: new TextEncoder().encode(mergedSource), input: { ...variantInput, definition: { ...variantInput.definition,
+    references: Object.fromEntries(['A1', 'B1'].map(pin => [pin, { pullup: pinMap.V1, powerClamp: pinMap.V1, pulldown: pinMap.G1, groundClamp: pinMap.G1 }])) } } })
   assert.deepEqual(merged.metadata.packageData.matrices?.pins, ['A1', 'B1', 'V2', 'G2'])
   assert.deepEqual(merged.metadata.packageData.matrices?.mergedPins, { V1: 'V2', G1: 'G2' })
   assert.match(merged.source, /VPKGM2 REF0 PKGM2 0/)
@@ -97,13 +97,13 @@ V2 NC VDD NC NC
   const noSelectedRows = partial.replace('[Model] input', 'C1 C input\nD1 D input\n[Model] input')
   const noSelectedStart = noSelectedRows.indexOf('[Define Package Model]')
   const scalarSource = noSelectedRows.slice(0, noSelectedStart) + noSelectedRows.slice(noSelectedStart).replaceAll('A1', 'C1').replaceAll('B1', 'D1')
-  const scalar = convertPackaged(new TextEncoder().encode(scalarSource), variantInput)
+  const scalar = convertPackaged({ bytes: new TextEncoder().encode(scalarSource), input: variantInput })
   assert.deepEqual(scalar.metadata.packageData.matrices?.pins, [])
   assert.match(scalar.source, /RPKGU0 PAD0 \S+ 9\n/)
   assert.doesNotMatch(scalar.source, /KPKG/)
   if (process.env.SI_TEST_PACKAGE_NGSPICE !== '1') return
   const data = { pins: ['A', 'B'], R: [[1, -.2], [-.2, 2]], L: [[2e-9, 1e-9], [1e-9, 4e-9]], C: [[2e-12, -.5e-12], [-.5e-12, 3e-12]] }
-  const elements = coupledPackageElements(data, ['a', 'b'], ['0', '0'], '0')
+  const elements = coupledPackageElements({ matrices: data, terminals: ['a', 'b'], die: ['0', '0'], ground: '0' })
   const deck = ['Package only AC oracle', ...elements, 'VA a 0 ac 1', 'VB b 0 ac 0', '.control', 'set wr_singlescale', 'set wr_vecnames', 'ac lin 1 1Meg 1Meg', 'wrdata package.dat v(a) v(b) i(VPKGS0) i(VPKGS1) i(VA) i(VB)', 'quit', '.endc', '.end'].join('\n')
   const solve = createNativeSolver({ timeoutMs: 10000, tools: { ngspice: process.env.NGSPICE_BIN ?? '/opt/homebrew/bin/ngspice' } })
   const result = await solve({ solver: 'ngspice', files: { 'package.cir': deck }, args: ['-n', '-b', 'package.cir'], outputFiles: ['package.dat'] })
@@ -137,11 +137,11 @@ test('golden invariants: DDR3 coupled-package selections stay SPD with |k| < 1, 
   const sets = { addrCmd: addrCmdPins.map(([, pin]) => pin), dqWrite: ['M3', 'M4', 'N1', 'N2', 'N3', 'N4', 'P3', 'P4', 'M2', 'P1', 'P2'] }
   const failures: string[] = []
   for (const [name, signals] of Object.entries(sets)) {
-    const selected = coupledPackage(text, component, [...signals, 'E5', 'A1'])!
+    const selected = coupledPackage({ text, component, pins: [...signals, 'E5', 'A1'] })!
     const L = energyFacts(selected.L)
     const C = energyFacts(selected.C)
     const maxwell = maxwellFacts(selected.C)
-    const elements = coupledPackageElements(selected, selected.pins.map((_, i) => `B${i}`), selected.pins.map((_, i) => `D${i}`), 'G')
+    const elements = coupledPackageElements({ matrices: selected, terminals: selected.pins.map((_, i) => `B${i}`), die: selected.pins.map((_, i) => `D${i}`), ground: 'G' })
     const k = Math.max(...elements.filter(line => line.startsWith('K')).map(line => Math.abs(Number(line.split(' ')[3]))))
     context.diagnostic(JSON.stringify({ set: name, pins: selected.pins.length, mergedPins: selected.mergedPins, L, C, maxwell, largestKElement: k, largestKPins: L.pair.map(i => selected.pins[i]) }))
     if (!(L.asymmetry <= 1e-12 && L.minimumEigenvalue > 0 && L.coupling < 1)) failures.push(`${name} L: ${JSON.stringify(L)}`)
@@ -157,7 +157,7 @@ test('golden invariants: Winbond DDR3 has no coupled package and every [Pin] R, 
   const text = await vendorText(context, 'W631GG6MB-12.ibs')
   if (!text) return
   const component = parseIbis(text).components['W631GG6MB-12']
-  assert.equal(coupledPackage(text, component, Object.keys(component.pins)), undefined)
+  assert.equal(coupledPackage({ text, component, pins: Object.keys(component.pins) }), undefined)
   const values = Object.values(component.pins).flatMap(pin => [pin.resistance, pin.inductance, pin.capacitance]).filter(value => value !== undefined)
   context.diagnostic(JSON.stringify({ pins: Object.keys(component.pins).length, scalarValues: values.length, package: component.package }))
   assert.ok(values.length > 0 && values.every(value => Number.isFinite(value) && value! >= 0))

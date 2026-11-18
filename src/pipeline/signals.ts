@@ -169,7 +169,7 @@ function prepareBlock({ input, block, sources, warnings, extraction, distanceMm 
     const references = new Set(inspected.flatMap(pin => [pin.power, pin.ground, ...Object.values(model.ibis_pin_name_to_reference_source_port_ids?.[pin.pin] ?? {})]))
     const selected = Object.entries(model.ibis_pin_name_to_source_port_id).filter(([pin, port]) => inspected.some(signal => signal.pin === pin) || references.has(port)).map(([pin]) => pin)
     const file = model.ibis_model_asset.project_relative_path
-    warnings.push(...packageCapacitanceWarnings(coupledPackage(inspected[0].text, inspected[0].component, selected), file, sha256(sources[file])))
+    warnings.push(...packageCapacitanceWarnings({ selected: coupledPackage({ text: inspected[0].text, component: inspected[0].component, pins: selected }), file, sourceSha256: sha256(sources[file]) }))
   }
   const rails = new Set<ConnectedSourceId>()
   for (const port of [...pins.values()].flatMap(pin => [pin.ground, pin.power]).concat(circuit.filter(record => record.type === 'source_net').filter(net => net.is_ground || net.is_power).map(net => net.source_net_id))) {

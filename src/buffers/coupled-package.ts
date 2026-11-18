@@ -2,12 +2,21 @@ import type { IbisComponent } from '@tscircuit/ibis-to-spice'
 import { parsePackageModel } from './package-model'
 import { selectPackageModel, type SelectedPackageModel } from './package-matrix'
 
+type PackageRail = 'pullup' | 'pulldown'
+
+/** POWER and GND can share their package bus with a listed pin. */
+function packageRail(model: string): PackageRail | undefined {
+  if (/^power$/i.test(model)) return 'pullup'
+  if (/^gnd$/i.test(model)) return 'pulldown'
+  return undefined
+}
+
 export interface CoupledPackageModel extends SelectedPackageModel {
   mergedPins: Record<string, string>
 }
 
 /** Log and retain source evidence even when a later admission gate rejects the board. */
-export function packageCapacitanceWarnings(selected: SelectedPackageModel | undefined, file: string, sourceSha256: string): string[] {
+export function packageCapacitanceWarnings({ selected, file, sourceSha256 }: { selected: SelectedPackageModel | undefined; file: string; sourceSha256: string }): string[] {
   const correction = selected?.capacitanceSignCorrection
   if (!correction) return []
   const warning = `${file} SHA-256 ${sourceSha256}: package model ${correction.packageModel}: negated ${correction.negatedEntries} off-diagonal capacitance entries (uniform positive magnitudes, diagonally dominant rows) before Maxwell sign/passivity validation`
@@ -16,7 +25,7 @@ export function packageCapacitanceWarnings(selected: SelectedPackageModel | unde
 }
 
 /** IBIS [Pin Numbers]: unlisted pins use scalar data unless their rail bus is merged. */
-export function coupledPackage(text: string, component: IbisComponent, pins: string[]): CoupledPackageModel | undefined {
+export function coupledPackage({ text, component, pins }: { text: string; component: IbisComponent; pins: string[] }): CoupledPackageModel | undefined {
   if (component.coupledPackage === undefined) return undefined
   const model = parsePackageModel(text, component.coupledPackage)
   const mergedPins: Record<string, string> = {}
@@ -24,9 +33,11 @@ export function coupledPackage(text: string, component: IbisComponent, pins: str
     const physical = component.pins[pin]
     if (!physical) throw new Error(`${model.name}: selected physical pin ${pin} missing from [Pin]`)
     if (model.pins.includes(pin)) continue
-    const role = /^power$/i.test(physical.model) ? 'pullup' : /^gnd$/i.test(physical.model) ? 'pulldown' : undefined
-    const bus = role && component.pinMapping[pin]?.[role]
-    const first = role && bus ? model.pins.find(other => component.pins[other]?.model.toLowerCase() === physical.model.toLowerCase() && component.pinMapping[other]?.[role] === bus) : undefined
+    const role = packageRail(physical.model)
+    if (!role) continue
+    const bus = component.pinMapping[pin]?.[role]
+    if (!bus) continue
+    const first = model.pins.find(other => component.pins[other]?.model.toLowerCase() === physical.model.toLowerCase() && component.pinMapping[other]?.[role] === bus)
     if (first) mergedPins[pin] = first
   }
   const selected = [...new Set(pins.map(pin => mergedPins[pin] ?? pin).filter(pin => model.pins.includes(pin)))]
@@ -38,7 +49,8 @@ export function packageComparisons(component: IbisComponent, selected: SelectedP
   return selected.pins.flatMap((pin, i) => (['resistance', 'inductance', 'capacitance'] as const).flatMap((field, j) => {
     const scalar = component.pins[pin]?.[field]
     const matrix = [selected.selfTerms.R, selected.selfTerms.L, selected.selfTerms.C][j][i]
-    return scalar !== undefined && scalar !== matrix ? [`${pin}: [Pin] ${field} ${scalar}; [Package Model] self term ${matrix} (matrix takes precedence before unused-pin reduction)`] : []
+    if (scalar === undefined || scalar === matrix) return []
+    return [`${pin}: [Pin] ${field} ${scalar}; [Package Model] self term ${matrix} (matrix takes precedence before unused-pin reduction)`]
   }))
 }
 
@@ -47,27 +59,32 @@ export function packageComparisons(component: IbisComponent, selected: SelectedP
  * CCVS terms realize the entire R matrix; signed K realizes L. Maxwell C is split
  * equally at board/die ends as one lumped pi section, relative to ideal die ground.
  */
-export function coupledPackageElements(data: Pick<SelectedPackageModel, 'pins' | 'R' | 'L' | 'C'>, terminals: string[], die: string[], ground: string): string[] {
+export function coupledPackageElements({ matrices, terminals, die, ground }: {
+  matrices: Pick<SelectedPackageModel, 'R' | 'L' | 'C'>
+  terminals: string[]
+  die: string[]
+  ground: string
+}): string[] {
   const elements: string[] = []
   for (let i = 0; i < terminals.length; i++) {
     let node = `PKGS${i}`
     elements.push(`VPKGS${i} ${terminals[i]} ${node} 0`)
-    if (data.R[i][i] > 0) {
-      elements.push(`RPKG${i} ${node} PKGR${i} ${data.R[i][i]}`)
+    if (matrices.R[i][i] > 0) {
+      elements.push(`RPKG${i} ${node} PKGR${i} ${matrices.R[i][i]}`)
       node = `PKGR${i}`
     }
-    for (let j = 0; j < terminals.length; j++) if (i !== j && data.R[i][j] !== 0) {
+    for (let j = 0; j < terminals.length; j++) if (i !== j && matrices.R[i][j] !== 0) {
       const next = `PKGR${i}_${j}`
-      elements.push(`HPKG${i}_${j} ${node} ${next} VPKGS${j} ${data.R[i][j]}`)
+      elements.push(`HPKG${i}_${j} ${node} ${next} VPKGS${j} ${matrices.R[i][j]}`)
       node = next
     }
-    elements.push(`LPKG${i} ${node} ${die[i]} ${data.L[i][i]}`)
-    const reference = data.C[i].reduce((sum, value) => sum + value, 0)
+    elements.push(`LPKG${i} ${node} ${die[i]} ${matrices.L[i][i]}`)
+    const reference = matrices.C[i].reduce((sum, capacitance) => sum + capacitance, 0)
     if (reference > 0) elements.push(`CPKG${i}a ${terminals[i]} ${ground} ${reference / 2}`, `CPKG${i}b ${die[i]} ${ground} ${reference / 2}`)
     for (let j = i + 1; j < terminals.length; j++) {
-      const coupling = data.L[i][j] / Math.sqrt(data.L[i][i] * data.L[j][j])
+      const coupling = matrices.L[i][j] / Math.sqrt(matrices.L[i][i] * matrices.L[j][j])
       if (coupling !== 0) elements.push(`KPKG${i}_${j} LPKG${i} LPKG${j} ${coupling}`)
-      const capacitance = -data.C[i][j] / 2
+      const capacitance = -matrices.C[i][j] / 2
       if (capacitance > 0) elements.push(`CPKG${i}_${j}a ${terminals[i]} ${terminals[j]} ${capacitance}`, `CPKG${i}_${j}b ${die[i]} ${die[j]} ${capacitance}`)
     }
   }

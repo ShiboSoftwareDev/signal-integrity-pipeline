@@ -16,7 +16,7 @@ export function assertConverter(): void {
  * declaration order. Artifacts (under `scope`, the output root): inputs/ibis/<pipelineId>.ibs and
  * vendor-sources.json, byte-identical to today.
  */
-export function admitBuffers(models: readonly ModelSourceRequest[], ibisSources: IbisSources, _modeling: object, scope: ArtifactScope): Produced<AdmittedBuffers> {
+export function admitBuffers({ models, ibisSources, scope }: { models: readonly ModelSourceRequest[]; ibisSources: IbisSources; scope: ArtifactScope }): Produced<AdmittedBuffers> {
   const loaded = models.map(model => loadModelSource(model, ibisSources))
   const artifacts: Artifact[] = loaded.map(source => scope.text(source.evidence.ibsFile, source.text))
   artifacts.push(scope.json('vendor-sources.json', loaded.map(source => source.evidence)))
@@ -35,7 +35,7 @@ export function compileBuffers<M extends { pipelineId: string; ibis_component_na
     const input = define(model, plan)
     const source = admitted.sources[index]
     input.definition.source = { file: source.evidence.ibsFile, sha256: source.evidence.sourceSha256 }
-    const result = convertPackaged(source.bytes, input, source.evidence.ibisModelAsset.project_relative_path)
+    const result = convertPackaged({ bytes: source.bytes, input, sourceFile: source.evidence.ibisModelAsset.project_relative_path })
     return { ...result, name: model.ibis_component_name, pipelineId: model.pipelineId, input, sourceEvidence: admitted.sources[index].evidence }
   }))
 }

@@ -195,10 +195,13 @@ export function generalSimulationSpice(plan: SimulationPlan, geometry: Pick<Geom
     const pin = models.flatMap(model => model.metadata?.pins ?? []).find(pin => pin.port === stimulus.source_port_id)
     const high = Boolean(stimulus.initial_state) !== Boolean(stimulus.inverted) !== (pin?.polarity === 'inverting')
     const rail = pin?.references.pullup
-    const supply = rail ? electrical.sourceBindings.find(source => source.positiveNode === nodes.node(rail)) : undefined
-    const voltage = supply ? electrical.lines.find(line => line.startsWith('V') && line.split(/\s+/)[1] === supply.positiveNode)?.split(/\s+/)[3] : undefined
+    if (!rail) continue
+    const supply = electrical.sourceBindings.find(source => source.positiveNode === nodes.node(rail))
+    if (!supply) continue
+    const voltage = electrical.lines.find(line => line.startsWith('V') && line.split(/\s+/)[1] === supply.positiveNode)?.split(/\s+/)[3]
     if (!voltage || !Number.isFinite(Number(voltage))) continue
-    const initial = high ? Number(voltage) : 0
+    let initial = 0
+    if (high) initial = Number(voltage)
     for (const id of [mapping.from, mapping.to]) initialConditions.push(`v(${nodes.node(id)})=${initial}`)
   }
   if (initialConditions.length) lines.push('.ic ' + initialConditions.join(' '))

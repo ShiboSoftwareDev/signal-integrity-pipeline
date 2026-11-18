@@ -66,7 +66,7 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
       stimuli: { [pinMap['1']]: { unitInterval: '1.25ns', startTime: '0ns', initialState: 0, pattern: { type: 'bits', bits: '10', repeat: true } } } },
   }
   const saved = structuredClone(input)
-  const converted = convertPackaged(new TextEncoder().encode(source), input)
+  const converted = convertPackaged({ bytes: new TextEncoder().encode(source), input })
   assert.throws(() => convertIbisModelToSpice(source, { ...input.definition, packagePolicy: 'omit' }, input.run), { code: 'overlapping_edges' })
   assert.match(converted.source, /VKU0 .*PWL/)
   assert.match(converted.source, /VKD0 .*PWL/)
@@ -90,7 +90,7 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
   }
   /** Run an original inline model through the same package and switching boundary. */
   function convert(next: ModelRunDefinition, text: string = source): ReturnType<typeof convertPackaged> {
-    return convertPackaged(new TextEncoder().encode(text), { ...next, definition: { ...next.definition, source: { content: text } } })
+    return convertPackaged({ bytes: new TextEncoder().encode(text), input: { ...next, definition: { ...next.definition, source: { content: text } } } })
   }
   /** Recover emitted PWL knots so assertions exercise the electrical artifact. */
   function points(text: string, label: string): Array<[number, number]> {
@@ -212,11 +212,11 @@ test('golden stage 4: vendor DDR3 buffers replayed into their own IBIS fixtures 
     const instances: { edge: string; resistance: number; voltage: number; table: [number, number][] }[] = []
     for (const edge of ['rising', 'falling'] as const) {
       const initialState = edge === 'rising' ? 0 : 1
-      const converted = convertSwitching(new TextEncoder().encode(text), {
+      const converted = convertSwitching({ bytes: new TextEncoder().encode(text), input: {
         definition: { source: { content: text }, component: replay.component, pinMap: { [replay.pin]: 'sig', [replay.power]: 'vdd', [replay.ground]: 'gnd' }, modelSelections: { [replay.pin]: replay.model },
           references: { [replay.pin]: { pullup: 'vdd', pulldown: 'gnd', powerClamp: 'vdd', groundClamp: 'gnd' } }, corner: 'typical', packagePolicy: 'vendor' },
         run: { duration: duration * 1e3, pinStates: { sig: { mode: 'output', enabled: true } }, stimuli: { sig: { unitInterval: duration * 1e3, startTime: 0, initialState, pattern: { type: 'bits', bits: String(1 - initialState), repeat: false } } } },
-      }, document)
+      }, document })
       const name = /^\.subckt (\S+)/m.exec(converted.source)![1]
       lines.push(converted.source)
       for (const wave of buffer.waveforms.filter(entry => entry.kind === edge)) {

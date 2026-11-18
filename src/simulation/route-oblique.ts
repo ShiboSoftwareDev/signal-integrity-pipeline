@@ -2,21 +2,31 @@ import { closestRoutePoints, routeCrossSection, solveSectionCapacitance, type Ex
 import { type SectionGeometry, type CopperScope, type RouteWire, type RouteXY } from '../board'
 import type { RouteLadder } from './route-ladder'
 
+type CrossSectionKey = string
+
+/** Nearest existing electrical ladder node; the spatial-error distance is recorded per encounter. */
+function nearestRouteNode({ wire, point }: { wire: RouteWire; point: RouteXY }, wireNodes: RouteLadder['wireNodes']): { node: string; errorMm: number } {
+  const position = point[0] * wire.u[0] + point[1] * wire.u[1]
+  const node = [...wireNodes.get(wire.id)!].sort((a, b) => Math.abs(a.position - position) - Math.abs(b.position - position))[0]
+  return { node: node.node, errorMm: Math.abs(node.position - position) }
+}
+
 /** Bounded weak-coupling electrostatic correction for oblique encounters; no silent angular rejection. */
-export function routeOblique(geometry: SectionGeometry, extracted: ExtractedRoutes, ladder: RouteLadder, scope: CopperScope, materials: RouteMaterials, panels: number = 12): {
+export function routeOblique({ geometry, extracted, ladder, scope, materials, panels = 12 }: {
+  geometry: SectionGeometry
+  extracted: ExtractedRoutes
+  ladder: RouteLadder
+  scope: CopperScope
+  materials: RouteMaterials
+  panels?: number
+}): {
   lines: string[]; records: Record<string, unknown>[]; solveMilliseconds: number; solves: number
 } {
   const lines: string[] = []
   const records: Record<string, unknown>[] = []
-  const cache = new Map<string, number>()
+  const cache = new Map<CrossSectionKey, number>()
   let solveMilliseconds = 0
   const active = geometry.wires.filter(wire => ladder.wireNodes.has(wire.id))
-  /** Nearest existing electrical ladder node; the spatial-error distance is recorded per encounter. */
-  const nearest = (wire: RouteWire, point: RouteXY): { node: string; errorMm: number } => {
-    const position = point[0] * wire.u[0] + point[1] * wire.u[1]
-    const node = [...ladder.wireNodes.get(wire.id)!].sort((a, b) => Math.abs(a.position - position) - Math.abs(b.position - position))[0]
-    return { node: node.node, errorMm: Math.abs(node.position - position) }
-  }
   for (let i = 0; i < active.length; i++) for (let j = i + 1; j < active.length; j++) {
     const a = active[i]
     const b = active[j]
@@ -58,8 +68,8 @@ export function routeOblique(geometry: SectionGeometry, extracted: ExtractedRout
     }
     const referenceGap = Math.min(...slice.references.map(ref => Math.abs(ref.z - (layers[la].zMaxMm + layers[la].zMinMm) / 2)))
     const lengthMm = Math.min(a.end - a.start, b.end - b.start, 2 * referenceGap / sine)
-    const first = nearest(a, near.first)
-    const second = nearest(b, near.second)
+    const first = nearestRouteNode({ wire: a, point: near.first }, ladder.wireNodes)
+    const second = nearestRouteNode({ wire: b, point: near.second }, ladder.wireNodes)
     const capacitanceF = capacitancePerM * lengthMm / 1000
     if (first.node !== second.node && capacitanceF > 1e-23) lines.push(`COB${records.length} ${first.node} ${second.node} ${capacitanceF}`)
     records.push({ wires: [a.id, b.id], policy: 'local parallel electrostatic surrogate; magnetic term omitted', angleSine: sine, distanceMm: near.distance, lengthMm, capacitanceF, nodePlacementErrorMm: [first.errorMm, second.errorMm] })

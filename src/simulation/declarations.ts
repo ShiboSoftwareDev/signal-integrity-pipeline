@@ -111,7 +111,12 @@ export function circuitNodes(circuit: CircuitJson,geometry: Pick<Geometry,'mappi
 /**
  * Combines experiment timing and probes with the lowered IBIS run controls. Every reference is checked here, before any solver runs.
  */
-export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry,'mappings'>,modeling: SimulationModeling,controls: Record<string, RunControls>): Declarations {
+export function generalDeclarations({ circuit, geometry, modeling, controls }: {
+  circuit: CircuitJson
+  geometry: Pick<Geometry,'mappings'>
+  modeling: SimulationModeling
+  controls: Record<string, RunControls>
+}): Declarations {
   for(const type of ['simulation_experiment','simulation_ibis_model','simulation_voltage_probe','source_port','source_net','source_component']) {
     const seen=new Set<string>()
     for(const record of circuit.filter(e=>e.type===type)) {
@@ -177,7 +182,9 @@ export function generalDeclarations(circuit: CircuitJson,geometry: Pick<Geometry
     const startTimeSeconds=milliseconds(experiment.start_time_ms??0,`${id} start_time_ms`)
     const maxStepSeconds=milliseconds(experiment.time_per_step,`${id} time_per_step`,{positive:true})
     if(startTimeSeconds>=durationSeconds||maxStepSeconds>=durationSeconds-startTimeSeconds) fail('simulation_timing',`${experiment.name}: recording must have positive duration and a smaller maximum timestep`)
-    const {states,stimuli:controlsForRun}=Object.hasOwn(controls,id)?controls[id]:{states:[],stimuli:[]}
+    let runControls: RunControls = { states: [], stimuli: [] }
+    if (Object.hasOwn(controls, id)) runControls = controls[id]
+    const { states, stimuli: controlsForRun } = runControls
     const stimuli=controlsForRun.map(stimulus=>({...stimulus,transmission_pattern:{...stimulus.transmission_pattern,bits:transmittedBits(stimulus.transmission_pattern?.bits)}}))
     const stateIds=new Set<string>()
     const stimulusIds=new Set<string>()
@@ -239,7 +246,18 @@ export function modelRunDefinition(model: PipelineIbisModel,plan: Pick<Simulatio
     }
   }
   for(const stimulus of plan.stimuli) if(selected.has(stimulus.source_port_id)) stimuli[stimulus.source_port_id]={unitInterval:stimulus.bit_duration_ms,startTime:stimulus.start_time_ms,initialState:stimulus.initial_state,inverted:stimulus.inverted??false,pattern:{type:'bits',bits:stimulus.transmission_pattern.bits,repeat:stimulus.transmission_pattern.repeat}}
-  const references: Record<string,IbisReferencePorts>=Object.fromEntries(Object.entries(model.ibis_pin_name_to_reference_source_port_ids??{}).filter(([pin])=>pin in pinMap).map(([pin,refs])=>[pin,{pullup:refs.pullup_reference_source_port_id,pulldown:refs.pulldown_reference_source_port_id,powerClamp:refs.power_clamp_reference_source_port_id,groundClamp:refs.ground_clamp_reference_source_port_id,...(refs.external_reference_source_port_id ? {external:refs.external_reference_source_port_id} : {})}]))
-  const packagePolicy: IbisModelDefinition['packagePolicy']='vendor'
-  return {definition:{source:{file:model.ibis_model_asset.project_relative_path},component:model.ibis_component_name,pinMap,modelSelections:model.ibis_pin_name_to_model_name ? Object.fromEntries(Object.entries(model.ibis_pin_name_to_model_name).filter(([pin])=>pin in pinMap)) : undefined,references,corner:'typical',packagePolicy},run:{duration:plan.durationSeconds*1000,pinStates,stimuli}}
+  const references: Record<string, IbisReferencePorts> = Object.fromEntries(Object.entries(model.ibis_pin_name_to_reference_source_port_ids ?? {}).filter(([pin]) => pin in pinMap).map(([pin, refs]) => {
+    const ports: IbisReferencePorts = {
+      pullup: refs.pullup_reference_source_port_id,
+      pulldown: refs.pulldown_reference_source_port_id,
+      powerClamp: refs.power_clamp_reference_source_port_id,
+      groundClamp: refs.ground_clamp_reference_source_port_id,
+    }
+    if (refs.external_reference_source_port_id) ports.external = refs.external_reference_source_port_id
+    return [pin, ports]
+  }))
+  const packagePolicy: IbisModelDefinition['packagePolicy'] = 'vendor'
+  let modelSelections: IbisModelDefinition['modelSelections']
+  if (model.ibis_pin_name_to_model_name) modelSelections = Object.fromEntries(Object.entries(model.ibis_pin_name_to_model_name).filter(([pin]) => pin in pinMap))
+  return {definition:{source:{file:model.ibis_model_asset.project_relative_path},component:model.ibis_component_name,pinMap,modelSelections,references,corner:'typical',packagePolicy},run:{duration:plan.durationSeconds*1000,pinStates,stimuli}}
 }

@@ -27,12 +27,12 @@ export class RouteBindingsSolver extends BaseSolver {
       const mappings = structuredClone(this.input.mappings)
       if (!mappings.length) throw new Error('Routed compilation requires physical signal mappings')
       mappings[0].sourceTraceIds = this.input.circuitJson.filter(record => record.type === 'pcb_trace').filter(trace => this.input.scope.pcbTraceIds.includes(trace.pcb_trace_id) && !this.input.scope.nonReferenceRailTraceIds.includes(trace.pcb_trace_id)).map(trace => trace.source_trace_id!)
-      this.declarations = generalDeclarations(this.input.circuitJson, { mappings }, this.input.modeling, this.input.controls)
+      this.declarations = generalDeclarations({ circuit: this.input.circuitJson, geometry: { mappings }, modeling: this.input.modeling, controls: this.input.controls })
       this.plan = this.declarations.plans[0]
       this.plan.durationSeconds = this.input.options.durationSeconds
       this.plan.maxStepSeconds = this.input.options.stepSeconds
       this.electricalLines = electricalSources(this.input.circuitJson, this.input.modeling, this.declarations.nodes).lines
-      const admitted = admitBuffers(this.declarations.models, this.input.ibisSources, {}, scope)
+      const admitted = admitBuffers({ models: this.declarations.models, ibisSources: this.input.ibisSources, scope })
       this.admitted = admitted.value
       this.artifacts.push(...admitted.artifacts)
     }
@@ -44,9 +44,9 @@ export class RouteBindingsSolver extends BaseSolver {
     }
     this.stats = { models: this.models.length, probes: this.plan!.probes.length, warnings: this.models.reduce((n, model) => n + model.warnings.length, 0) }
     if (this.models.length !== this.declarations.models.length) return
-    const value = snapshot({ circuitJson: this.input.circuitJson, scope: this.input.scope, mappings: this.input.mappings, plan: this.plan!, nodeMap: this.declarations.nodes.mapping, groundSourcePortId: this.declarations.nodes.groundSourcePortId, electricalLines: this.electricalLines, models: this.models })
-    this.artifacts.push(scope.json('native-ibis-assembly.json', this.assembly), rootScope('simulation').child(this.input.artifactPrefix).json('electrical-node-map.json', { nodes: value.nodeMap, channelReferenceSourcePortId: value.groundSourcePortId }))
-    this.output = { value, artifacts: this.artifacts }
+    const bindings = snapshot({ circuitJson: this.input.circuitJson, scope: this.input.scope, mappings: this.input.mappings, plan: this.plan!, nodeMap: this.declarations.nodes.mapping, groundSourcePortId: this.declarations.nodes.groundSourcePortId, electricalLines: this.electricalLines, models: this.models })
+    this.artifacts.push(scope.json('native-ibis-assembly.json', this.assembly), rootScope('simulation').child(this.input.artifactPrefix).json('electrical-node-map.json', { nodes: bindings.nodeMap, channelReferenceSourcePortId: bindings.groundSourcePortId }))
+    this.output = { value: bindings, artifacts: this.artifacts }
     this.solved = true
   }
   /** Complete immutable bindings only. */
@@ -61,17 +61,11 @@ export class RouteBindingsSolver extends BaseSolver {
     const circuit = this.input.circuitJson
     const view = routeView(circuit, this.input.scope)
     const drawing = routeBoardDrawing({ circuit, scope: this.input.scope })
-    const pcbPorts = new Map(circuit.flatMap(port => (port.type === 'pcb_port' ? [[port.source_port_id, port] as const] : [])))
-    const components = new Map(circuit.flatMap(component => (component.type === 'pcb_component' ? [[component.pcb_component_id, component] as const] : [])))
-    /** Outline the parts that own these ports. */
-    const outline = (ports: Iterable<string>, color: string, label: string): void => {
-      for (const id of new Set([...ports].map(port => pcbPorts.get(port)?.pcb_component_id))) {
-        const component = id && components.get(id)
-        if (component) drawing.polygons!.push({ points: routeOutline(component), stroke: color, strokeWidth: view.unit * 0.2, label })
-      }
-    }
+    const pcbPorts = new Map(circuit.filter(port => port.type === 'pcb_port').map(port => [port.source_port_id, port]))
+    const components = new Map(circuit.filter(component => component.type === 'pcb_component').map(component => [component.pcb_component_id, component]))
+    const outlineContext = { pcbPorts, components, drawing, unit: view.unit }
     const buffers = this.models.flatMap(model => {
-      outline(Object.values(model.spicePinMapping), routeTones.via, model.name)
+      outlinePortComponents({ ports: Object.values(model.spicePinMapping), color: routeTones.via, label: model.name }, outlineContext)
       return [...new Set(Object.values(model.spicePinMapping))].flatMap(id => {
         const point = routePortPoint(circuit, id)
         if (!point) return []
@@ -88,9 +82,28 @@ export class RouteBindingsSolver extends BaseSolver {
     const bound = new Set(buffers.map(buffer => buffer.label))
     routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view).filter(row => bound.has(row.net.label)), buffers: { driver: true, receiver: true } })
     if (this.failed) {
-      outline(this.input.mappings.flatMap(mapping => [mapping.from, mapping.to]), routeTones.failure, 'unbound')
+      outlinePortComponents({ ports: this.input.mappings.flatMap(mapping => [mapping.from, mapping.to]), color: routeTones.failure, label: 'unbound' }, outlineContext)
       routeFailure({ drawing, box: view.pane, message: this.error ?? 'IBIS binding unavailable' })
     }
     return drawing
+  }
+}
+
+type PcbPort = Extract<RouteBindingsInput['circuitJson'][number], { type: 'pcb_port' }>
+type PcbComponent = Extract<RouteBindingsInput['circuitJson'][number], { type: 'pcb_component' }>
+
+/** Outline the parts that own the selected ports. */
+function outlinePortComponents({ ports, color, label }: { ports: Iterable<PcbPort['source_port_id']>; color: string; label: string }, {
+  pcbPorts, components, drawing, unit,
+}: {
+  pcbPorts: ReadonlyMap<PcbPort['source_port_id'], PcbPort>
+  components: ReadonlyMap<PcbComponent['pcb_component_id'], PcbComponent>
+  drawing: GraphicsObject
+  unit: number
+}): void {
+  for (const id of new Set([...ports].map(port => pcbPorts.get(port)?.pcb_component_id))) {
+    if (!id) continue
+    const component = components.get(id)
+    if (component) drawing.polygons!.push({ points: routeOutline(component), stroke: color, strokeWidth: unit * 0.2, label })
   }
 }

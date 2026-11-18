@@ -15,7 +15,7 @@ test('actual routed TSX exceeds the old 1024-cell cap with locally supported cou
   const { circuitJson, scope } = await routedCopper()
   const fields = new RouteFieldsSolver({ geometry: segmentRoutes(circuitJson, scope), artifactPrefix: 'test' })
   fields.solve()
-  const result = routeLadder(fields.getOutput().value, endpoint, 1e-12)
+  const result = routeLadder({ extracted: fields.getOutput().value, endpoint, riseSeconds: 1e-12 })
   assert.ok(result.cells > 1024)
   const couplings = result.lines.filter(line => line.startsWith('K'))
   assert.ok(couplings.length > 0)
@@ -51,7 +51,7 @@ function straightLine(section: CrossSection, lossScale: number): { extracted: Ex
     if (!interior.has(key)) interior.set(key, `n${interior.size}`)
     return interior.get(key)!
   }
-  return { extracted, line, ladder: routeLadder(extracted, endpoint, riseSeconds) }
+  return { extracted, line, ladder: routeLadder({ extracted, endpoint, riseSeconds }) }
 }
 
 /** Homogeneous er = 4 stripline (b = 1 mm): every mode travels at exactly c/sqrt(er), whatever the field-solver error. */

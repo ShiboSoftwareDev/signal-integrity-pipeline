@@ -78,8 +78,8 @@ test('signal packages and vendor reference evidence remain present; disabled dri
   signal.pattern = '0'
   const prepared = prepareBlocks({ circuitJson: circuit, sources: ibis })[0]
   const geometry = geometryFromCircuitJson(prepared.circuit, prepared.settings)
-  const declarations = generalDeclarations(prepared.circuit, geometry, prepared.settings, prepared.controls)
-  const admitted = admitBuffers(declarations.models, ibis, prepared.settings, rootScope('buffers'))
+  const declarations = generalDeclarations({ circuit: prepared.circuit, geometry, modeling: prepared.settings, controls: prepared.controls })
+  const admitted = admitBuffers({ models: declarations.models, ibisSources: ibis, scope: rootScope('buffers') })
   const compiled = compileBuffers(admitted.value, declarations.plans, modelRunDefinition)[0]
   for (const model of compiled) {
     assert.equal(model.metadata.packagePolicy, 'vendor')

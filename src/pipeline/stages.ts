@@ -28,10 +28,10 @@ export const declare: Stage<'admitted', 'declared'> = {
   run: state => {
     const { board, modeling, options } = state
     const geometry = channelGeometry(board, modeling, rootScope('board'))
-    const declarations = generalDeclarations(board.circuitJson, geometry.value, modeling, options.controls)
+    const declarations = generalDeclarations({ circuit: board.circuitJson, geometry: geometry.value, modeling, controls: options.controls })
     const electrical = electricalSources(board.circuitJson, modeling, declarations.nodes)
     const plans = safeSimulationPlans(declarations.plans)
-    const buffers = admitBuffers(declarations.models, options.ibisSources, modeling, rootScope('buffers'))
+    const buffers = admitBuffers({ models: declarations.models, ibisSources: options.ibisSources, scope: rootScope('buffers') })
     return {
       state: { ...state, phase: 'declared', geometry: geometry.value, experiments: { ...declarations, electrical }, plans, buffers: buffers.value },
       artifacts: [...buffers.artifacts, ...geometry.artifacts, electricalNodeMap(declarations.nodes, electrical, rootScope('simulation'))],
@@ -90,7 +90,7 @@ export const simulate: Stage<'extracted', 'simulated'> = {
         transmission_pattern: { ...stimulus.transmission_pattern, bits: stimulus.transmission_pattern.bits[0] } })) }
       const idleModels = compileBuffers(state.buffers, [idlePlan], modelRunDefinition)
       const idleBound = { ...state.bound, plans: [idlePlan], compiled: idleModels }
-      const idle = await runIdle(ctx, base.child('undisturbed-idle'), idleBound, 0, state.geometry, state.modeling, state.channel.matrices)
+      const idle = await runIdle({ ctx, scope: base.child('undisturbed-idle'), bound: idleBound, index: 0, geometry: state.geometry, modeling: state.modeling, extracted: state.channel.matrices })
       artifacts.push(...idle.artifacts)
       let run = await runExperiment(ctx, scope, state.bound, index, state.geometry, state.modeling, state.channel.matrices)
       artifacts.push(...assembly.artifacts, ...run.artifacts.filter(artifact => !waveformArtifact(artifact)))
@@ -108,7 +108,7 @@ export const simulate: Stage<'extracted', 'simulated'> = {
           throw Object.assign(error, { convergence })
         })
         artifacts.push(...assembly.artifacts, ...run.artifacts.filter(artifact => !waveformArtifact(artifact)))
-        const check = waveformConvergence(previous.value.rows, run.value.rows, gate, idle.value.voltages)
+        const check = waveformConvergence({ before: previous.value.rows, after: run.value.rows, gate, idle: idle.value.voltages })
         settled[dimension] = check.accepted
         if (!check.accepted) settled[refinementDimensions[refinement % 2]] = false
         convergence.push({ previous_waveform_csv_sha256: previous.value.waveformCsvSha256, waveform_csv_sha256: run.value.waveformCsvSha256, dimension, sections: state.modeling.sections, step_s: plan.maxStepSeconds, ...check })

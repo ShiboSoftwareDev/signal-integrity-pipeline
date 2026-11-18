@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { receiverThreshold, routeWaveformDrawing, roundTicks } from '../../src/simulation'
 import type { RoutedCapture } from '../../src/simulation'
 
-type RouteBuffer = Parameters<typeof receiverThreshold>[1][number]
+type RouteBuffer = Parameters<typeof receiverThreshold>[0]['models'][number]
 import { sha256 } from '../../src/kernel'
 import { assertRouteVisual, routedVisualFixture } from '../support/routed-visual-fixture'
 
@@ -31,7 +31,7 @@ test('waveform pane: one colour per probe, near ends dashed underneath, a thresh
   assert.deepEqual(curves.map((line) => [line.label, Boolean(line.strokeDash)]), [['VICTIM', true], ['DATA', false]])
   assert.ok(drawing.lines!.some((line) => line.label === 'receiver threshold' && line.zIndex === -0.5))
   assert.ok(drawing.texts!.every((text) => !/e-\d/.test(text.text)), 'no floating-point noise in labels')
-  assert.deepEqual(roundTicks(-0.55, 0.2, 5).map((tick) => tick.text), ['-0.4', '-0.2', '0.0', '0.2'])
+  assert.deepEqual(roundTicks({ low: -0.55, high: 0.2, count: 5 }).map((tick) => tick.text), ['-0.4', '-0.2', '0.0', '0.2'])
 })
 
 test('pending, running and failed captures draw empty axes, an amber hatch and a red reason, never invented curves', () => {
@@ -63,7 +63,7 @@ test('receiver thresholds come from the bound IBIS models of single-ended receiv
   const text = '[Model] RX_IN\nModel_type Input\nVinl = 0.8V\nVinh = 2000m\n[End]\n'
   /** A bound receiver model of the given IBIS type. */
   const model = (modelType: string): RouteBuffer => ({ name: 'U', source: '', spicePinMapping: {}, warnings: [], sourceEvidence: [], metadata: { sourceSha256: sha256(text), pins: [{ port: 'rx', model: 'RX_IN', modelType }] } }) as unknown as RouteBuffer
-  assert.deepEqual(receiverThreshold({ 'models/x.ibs': text }, [model('Input')], new Set(['rx'])), { low: 0.8, high: 2 })
-  assert.equal(receiverThreshold({ 'models/x.ibs': text }, [model('Input_diff')], new Set(['rx'])), undefined)
-  assert.equal(receiverThreshold({ 'models/x.ibs': text }, [model('Input')], new Set(['other'])), undefined)
+  assert.deepEqual(receiverThreshold({ ibisSources: { 'models/x.ibs': text }, models: [model('Input')], receivers: new Set(['rx']) }), { low: 0.8, high: 2 })
+  assert.equal(receiverThreshold({ ibisSources: { 'models/x.ibs': text }, models: [model('Input_diff')], receivers: new Set(['rx']) }), undefined)
+  assert.equal(receiverThreshold({ ibisSources: { 'models/x.ibs': text }, models: [model('Input')], receivers: new Set(['other']) }), undefined)
 })

@@ -52,11 +52,12 @@ export function parsePackageModel(text: string, name: string): PackageModel {
     const header = /^\[([^\]]+)\]\s*(.*)$/.exec(line)
     const key = header?.[1].toLowerCase().replace(/_/g, ' ')
     if (key === 'number of sections') throw new Error(`${name}: package sections are unsupported ([Number Of Sections]); scalar fallback is forbidden`)
-    if (header) sections.push({ key: key!, argument: header[2], lines: [] })
-    else {
-      if (!sections.length) throw new Error(`${name}: data before package metadata`)
-      sections.at(-1)!.lines.push(line)
+    if (header) {
+      sections.push({ key: key!, argument: header[2], lines: [] })
+      continue
     }
+    if (!sections.length) throw new Error(`${name}: data before package metadata`)
+    sections.at(-1)!.lines.push(line)
   }
   const metadata: Record<string, string> = {}
   const pins: string[] = []
@@ -72,8 +73,14 @@ export function parsePackageModel(text: string, name: string): PackageModel {
       if (key === 'number of pins') {
         if (!/^\d+$/.test(argument) || Number(argument) < 1 || !Number.isSafeInteger(Number(argument))) throw new Error(`${name}: invalid [Number Of Pins]`)
         count = Number(argument)
-      } else if (!argument || argument.length > (key === 'description' ? 59 : 40)) throw new Error(`${name}: invalid [${key}]`)
-    } else if (key === 'pin numbers') {
+        continue
+      }
+      let maxLength = 40
+      if (key === 'description') maxLength = 59
+      if (!argument || argument.length > maxLength) throw new Error(`${name}: invalid [${key}]`)
+      continue
+    }
+    if (key === 'pin numbers') {
       if (phase !== 'metadata' || !count || argument) throw new Error(`${name}: [Number Of Pins] must precede [Pin Numbers]`)
       for (const line of lines) {
         if (/\s|[=/]/.test(line) || /^(fork|endfork)$/i.test(line)) throw new Error(`${name}: package section syntax is unsupported in [Pin Numbers]`)
@@ -82,21 +89,25 @@ export function parsePackageModel(text: string, name: string): PackageModel {
       }
       if (pins.length !== count) throw new Error(`${name}: package pin count ${pins.length} differs from [Number Of Pins] ${count}`)
       phase = 'pins'
-    } else if (key === 'model data') {
+      continue
+    }
+    if (key === 'model data') {
       if (phase !== 'pins' || argument || lines.length) throw new Error(`${name}: invalid [Model Data]`)
       phase = 'data'
-    } else if (key === 'end model data') {
+      continue
+    }
+    if (key === 'end model data') {
       if (phase !== 'data' || argument || lines.length) throw new Error(`${name}: invalid [End Model Data]`)
       phase = 'end'
-    } else {
-      const fields: Record<string, 'R' | 'L' | 'C' | undefined> = { 'resistance matrix': 'R', 'inductance matrix': 'L', 'capacitance matrix': 'C' }
-      const field = fields[key]
-      if (!field || phase !== 'data' || matrices[field]) throw new Error(`${name}: unexpected or duplicate [${key}]`)
-      let end = i + 1
-      while (end < sections.length && ['bandwidth', 'row'].includes(sections[end].key)) end++
-      matrices[field] = parseMatrix(sections.slice(i, end), pins, `${name} [${key}]`)
-      i = end - 1
+      continue
     }
+    const fields: Record<string, 'R' | 'L' | 'C' | undefined> = { 'resistance matrix': 'R', 'inductance matrix': 'L', 'capacitance matrix': 'C' }
+    const field = fields[key]
+    if (!field || phase !== 'data' || matrices[field]) throw new Error(`${name}: unexpected or duplicate [${key}]`)
+    let end = i + 1
+    while (end < sections.length && ['bandwidth', 'row'].includes(sections[end].key)) end++
+    matrices[field] = parseMatrix({ sections: sections.slice(i, end), pins, label: `${name} [${key}]` })
+    i = end - 1
   }
   for (const key of ['manufacturer', 'oem', 'description']) if (!(key in metadata)) throw new Error(`${name}: required [${key.toUpperCase()}] missing`)
   if (phase !== 'end') throw new Error(`${name}: missing [End Model Data]`)
@@ -109,21 +120,22 @@ function matrixNumber(token: string, label: string): number {
   const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([TGMkmunpf]?)[a-zA-Z]*$/.exec(token)
   if (!match) throw new Error(`${label}: invalid numeric matrix value ${token}`)
   const scales: Record<string, number> = { '': 1, T: 1e12, G: 1e9, M: 1e6, k: 1e3, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15 }
-  const value = Number(match[1]) * scales[match[2]]
-  if (!Number.isFinite(value)) throw new Error(`${label}: finite matrix value required: ${token}`)
-  return value
+  const coefficient = Number(match[1]) * scales[match[2]]
+  if (!Number.isFinite(coefficient)) throw new Error(`${label}: finite matrix value required: ${token}`)
+  return coefficient
 }
 
 /** Expand upper-triangle storage, including the spec's optional circular band. */
-function parseMatrix(sections: Section[], pins: string[], label: string): number[][] {
+function parseMatrix({ sections, pins, label }: { sections: Section[]; pins: string[]; label: string }): number[][] {
   const format = sections[0].argument.toLowerCase()
   if (!['full_matrix', 'banded_matrix', 'sparse_matrix'].includes(format) || sections[0].lines.length) throw new Error(`${label}: invalid matrix format`)
   const banded = format === 'banded_matrix'
-  const band = sections[1]?.key === 'bandwidth' ? sections[1] : undefined
-  if (banded !== Boolean(band) || (band && (!/^\d+$/.test(band.argument) || band.lines.length))) throw new Error(`${label}: [Bandwidth] required only for Banded_matrix before rows`)
-  const width = band ? Number(band.argument) : pins.length - 1
+  const hasBand = sections[1]?.key === 'bandwidth'
+  let width = pins.length - 1
+  if (banded !== hasBand || (hasBand && (!/^\d+$/.test(sections[1].argument) || sections[1].lines.length))) throw new Error(`${label}: [Bandwidth] required only for Banded_matrix before rows`)
+  if (hasBand) width = Number(sections[1].argument)
   if (!Number.isSafeInteger(width) || width >= pins.length) throw new Error(`${label}: invalid bandwidth ${width}`)
-  const rows = sections.slice(band ? 2 : 1)
+  const rows = sections.slice(1 + Number(hasBand))
   if (rows.length !== pins.length || rows.some((row, i) => row.key !== 'row' || row.argument !== pins[i])) throw new Error(`${label}: row order must match [Pin Numbers] exactly`)
   const values = rows.map(row => row.lines.flatMap(line => line.split(/\s+/)))
   const circular = banded && width > 0 && values.every(row => row.length === width + 1)
@@ -143,13 +155,14 @@ function parseMatrix(sections: Section[], pins: string[], label: string): number
         seen.add(j)
         matrix[i][j] = matrix[j][i] = matrixNumber(tokens[1], label)
       }
-    } else {
-      const count = circular ? width + 1 : Math.min(width + 1, pins.length - i)
-      if (values[i].length !== count) throw new Error(`${label} ${pins[i]}: expected ${count} entries, got ${values[i].length}; inconsistent bandwidth or truncated row`)
-      for (let k = 0; k < count; k++) {
-        const j = (i + k) % pins.length
-        matrix[i][j] = matrix[j][i] = matrixNumber(values[i][k], label)
-      }
+      continue
+    }
+    let count = width + 1
+    if (!circular) count = Math.min(count, pins.length - i)
+    if (values[i].length !== count) throw new Error(`${label} ${pins[i]}: expected ${count} entries, got ${values[i].length}; inconsistent bandwidth or truncated row`)
+    for (let k = 0; k < count; k++) {
+      const j = (i + k) % pins.length
+      matrix[i][j] = matrix[j][i] = matrixNumber(values[i][k], label)
     }
   }
   return matrix

@@ -55,7 +55,7 @@ export const routedStages = [
       board: p.stageOutput('RouteSectionsSolver').value[i],
       artifactPrefix: p.stageOutput('RoutedAdmissionSolver').value[i].sections.artifactPrefix,
       context: p.context,
-      threshold: receiverThreshold(p.inputProblem.ibisSources, p.stageOutput('RouteBindingsSolver').value[i].models, new Set(p.stageOutput('RouteBindingsSolver').value[i].mappings.map(mapping => mapping.to))),
+      threshold: receiverThreshold({ ibisSources: p.inputProblem.ibisSources, models: p.stageOutput('RouteBindingsSolver').value[i].models, receivers: new Set(p.stageOutput('RouteBindingsSolver').value[i].mappings.map(mapping => mapping.to)) }),
     })),
   ]),
 ] as const satisfies readonly PipelineStep<BaseSolver>[]

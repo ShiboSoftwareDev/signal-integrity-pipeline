@@ -8,58 +8,72 @@ export class RouteEnergy {
     this.rows = Array.from({ length: size }, () => new Map())
   }
   /** Preserve integration order exactly; structural zeros consume no storage. */
-  add(i: number, j: number, value: number): void {
-    if (value === 0) return
-    this.set(i, j, (this.rows[i].get(j) ?? 0) + value)
+  add({ row, column, coefficient }: { row: number; column: number; coefficient: number }): void {
+    if (coefficient === 0) return
+    this.set({ row, column, coefficient: (this.rows[row].get(column) ?? 0) + coefficient })
   }
   /** Replace hybrid terms without changing their floating-point evaluation. */
-  set(i: number, j: number, value: number): void {
-    const row = this.rows[i]
-    if (!Number.isFinite(value)) throw new Error('Route energy requires finite coefficients')
-    if (!row.has(j) && value !== 0) {
+  set({ row, column, coefficient }: { row: number; column: number; coefficient: number }): void {
+    const entries = this.rows[row]
+    if (!Number.isFinite(coefficient)) throw new Error('Route energy requires finite coefficients')
+    if (coefficient === 0) {
+      if (entries.delete(column)) this.budget.entries--
+      return
+    }
+    if (!entries.has(column)) {
       if (this.budget.entries >= 500_000) throw new Error('Route energy exceeds sparse-memory limit of 500000 matrix entries')
       this.budget.entries++
     }
-    if (value === 0) {
-      if (row.delete(j)) this.budget.entries--
-    } else row.set(j, value)
+    entries.set(column, coefficient)
   }
   /** Stable column order preserves the dense deck's text and floating-point summation. */
   entries(i: number): [number, number][] { return [...this.rows[i]].sort(([a], [b]) => a - b) }
   /** Temporary scaled matrices share the assembled sparsity, without dense allocation. */
   scaled(scale: number): RouteEnergy {
     const result = new RouteEnergy(this.rows.length)
-    for (const [i, row] of this.rows.entries()) for (const [j, value] of row) result.rows[i].set(j, value * scale)
+    for (const [i, row] of this.rows.entries()) for (const [j, coefficient] of row) result.rows[i].set(j, coefficient * scale)
     return result
   }
 }
 
 /** Stable SPICE precision, bounded far beyond board tolerances. */
-const number = (value: number): string => Number(value.toPrecision(12)).toString()
+function spiceCoefficient(coefficient: number): string {
+  return Number(coefficient.toPrecision(12)).toString()
+}
 
 /** Coupled series matrix: normalized reciprocal R multiport or mutually coupled inductors. */
-export function seriesEnergy(lines: string[], tag: string, before: string[], after: string[], matrix: RouteEnergy, kind: 'R' | 'L'): void {
+export function seriesEnergy({ lines, tag, before, after, matrix, kind }: {
+  lines: string[]
+  tag: string
+  before: string[]
+  after: string[]
+  matrix: RouteEnergy
+  kind: 'R' | 'L'
+}): void {
   for (let i = 0; i < before.length; i++) {
     if (before[i] === after[i]) continue
-    if (kind === 'R') {
-      const resistance = matrix.rows[i].get(i) ?? 0
-      const terms = matrix.entries(i).filter(([j, r]) => j !== i && before[j] !== after[j] && Math.abs(r) >= 1e-20)
-      if (!terms.length) {
-        lines.push(`R${tag}${i} ${before[i]} ${after[i]} ${number(resistance)}`)
-        continue
-      }
-      // x = sqrt(diag(R)) I; the auxiliary KCL is normalized R x = V/sqrt(diag(R)).
-      // Opposite G stamps are lossless gyrators. No tiny CCVS voltage differences or sensor currents.
-      const current = `${tag}r${i}`
-      const scale = 1 / Math.sqrt(resistance)
-      lines.push(`R${tag}${i} ${current} 0 1`, `G${tag}I${i} ${before[i]} ${after[i]} ${current} 0 ${number(scale)}`,
-        `G${tag}V${i} ${current} 0 ${before[i]} ${after[i]} ${number(-scale)}`)
-      for (const [j, mutual] of terms) lines.push(`G${tag}${i}_${j} ${current} 0 ${tag}r${j} 0 ${number(mutual / Math.sqrt(resistance * matrix.rows[j].get(j)!))}`)
-    } else lines.push(`L${tag}${i} ${before[i]} ${after[i]} ${number((matrix.rows[i].get(i) ?? 0))}`)
+    if (kind !== 'R') {
+      lines.push(`L${tag}${i} ${before[i]} ${after[i]} ${spiceCoefficient(matrix.rows[i].get(i) ?? 0)}`)
+      continue
+    }
+    const resistance = matrix.rows[i].get(i) ?? 0
+    const terms = matrix.entries(i).filter(([j, r]) => j !== i && before[j] !== after[j] && Math.abs(r) >= 1e-20)
+    if (!terms.length) {
+      lines.push(`R${tag}${i} ${before[i]} ${after[i]} ${spiceCoefficient(resistance)}`)
+      continue
+    }
+    // x = sqrt(diag(R)) I; the auxiliary KCL is normalized R x = V/sqrt(diag(R)).
+    // Opposite G stamps are lossless gyrators. No tiny CCVS voltage differences or sensor currents.
+    const current = `${tag}r${i}`
+    const scale = 1 / Math.sqrt(resistance)
+    lines.push(`R${tag}${i} ${current} 0 1`, `G${tag}I${i} ${before[i]} ${after[i]} ${current} 0 ${spiceCoefficient(scale)}`,
+      `G${tag}V${i} ${current} 0 ${before[i]} ${after[i]} ${spiceCoefficient(-scale)}`)
+    for (const [j, mutual] of terms) lines.push(`G${tag}${i}_${j} ${current} 0 ${tag}r${j} 0 ${spiceCoefficient(mutual / Math.sqrt(resistance * matrix.rows[j].get(j)!))}`)
   }
-  if (kind === 'L') for (let i = 0; i < before.length; i++) for (const [j, mutual] of matrix.entries(i)) {
+  if (kind !== 'L') return
+  for (let i = 0; i < before.length; i++) for (const [j, mutual] of matrix.entries(i)) {
     if (j <= i) continue
-    if (before[i] !== after[i] && before[j] !== after[j] && Math.abs(mutual) > 1e-24) lines.push(`K${tag}${i}_${j} L${tag}${i} L${tag}${j} ${number(mutual / Math.sqrt((matrix.rows[i].get(i) ?? 0) * (matrix.rows[j].get(j) ?? 0)))}`)
+    if (before[i] !== after[i] && before[j] !== after[j] && Math.abs(mutual) > 1e-24) lines.push(`K${tag}${i}_${j} L${tag}${i} L${tag}${j} ${spiceCoefficient(mutual / Math.sqrt((matrix.rows[i].get(i) ?? 0) * (matrix.rows[j].get(j) ?? 0)))}`)
   }
 }
 
@@ -75,84 +89,123 @@ export function seriesEnergy(lines: string[], tag: string, before: string[], aft
  * I = x / sqrt(Mii), the auxiliary KCL is sum_j Mn_ij u_j = V / sqrt(Mii), and a grounded unit Foster stage
  * sequence gives u = z(s) x. Returns how many rows had their own share reduced by the cap.
  */
-export function skinEnergy(lines: string[], tag: string, before: string[], stripStages: string[][], stages: string[][], matrix: RouteEnergy, poles: LossPole[], dc: number[], strip: number[]): number {
+export function skinEnergy({ lines, tag, before, stripStages, stages, matrix, poles, dc, strip }: {
+  lines: string[]
+  tag: string
+  before: string[]
+  stripStages: string[][]
+  stages: string[][]
+  matrix: RouteEnergy
+  poles: LossPole[]
+  dc: number[]
+  strip: number[]
+}): number {
   const after = stages.at(-1)!
   const top = Math.max(...poles.map(pole => pole.skin))
-  const terms = before.map((_, i) => matrix.entries(i).filter(([j, value]) => j !== i && Math.abs(value) * top >= 1e-20))
-  const own = before.map((_, i) => Math.max(0, Math.min(strip[i], (matrix.rows[i].get(i) ?? 0) - terms[i].reduce((sum, [, value]) => sum + Math.abs(value), 0))))
-  const rest = own.map((value, i) => (matrix.rows[i].get(i) ?? 0) - value)
-  for (const [i, value] of rest.entries()) {
-    if (value < terms[i].reduce((sum, [, mutual]) => sum + Math.abs(mutual), 0) * (1 - 1e-12)) throw new Error('Skin loss remainder must stay diagonally dominant (passive)')
+  const terms = before.map((_, i) => matrix.entries(i).filter(([j, coefficient]) => j !== i && Math.abs(coefficient) * top >= 1e-20))
+  const own = before.map((_, i) => Math.max(0, Math.min(strip[i], (matrix.rows[i].get(i) ?? 0) - terms[i].reduce((sum, [, coefficient]) => sum + Math.abs(coefficient), 0))))
+  const rest = own.map((coefficient, i) => (matrix.rows[i].get(i) ?? 0) - coefficient)
+  for (const [i, coefficient] of rest.entries()) {
+    if (coefficient < terms[i].reduce((sum, [, mutual]) => sum + Math.abs(mutual), 0) * (1 - 1e-12)) throw new Error('Skin loss remainder must stay diagonally dominant (passive)')
   }
   // A row whose remainder is zero ends its own chain at `after`; one without its own share starts the remainder at `before`.
-  const middle = before.map((node, i) => !(own[i] > 0) ? node : rest[i] > 0 || terms[i].length ? stripStages.at(-1)![i] : after[i])
-  const shifted = own.map((value, i) => crossoverPoles(poles, skinCrossover(dc[i], value)))
+  const middle = before.map((node, i) => {
+    if (!(own[i] > 0)) return node
+    if (rest[i] > 0 || terms[i].length) return stripStages.at(-1)![i]
+    return after[i]
+  })
+  const shifted = own.map((coefficient, i) => crossoverPoles(poles, skinCrossover(dc[i], coefficient)))
   for (let p = 0; p < poles.length; p++) for (const kind of ['RQ', 'LQ'] as const) for (let i = 0; i < before.length; i++) {
     if (!(own[i] > 0)) continue
     const resistance = own[i] * shifted[i][p].skin
-    const end = p === poles.length - 1 ? middle[i] : stripStages[p][i]
-    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${p ? stripStages[p - 1][i] : before[i]} ${end} ${number(kind === 'RQ' ? resistance : resistance / shifted[i][p].rate)}`)
+    let end = middle[i]
+    if (p < poles.length - 1) end = stripStages[p][i]
+    let start = before[i]
+    if (p > 0) start = stripStages[p - 1][i]
+    let coefficient = resistance
+    if (kind === 'LQ') coefficient /= shifted[i][p].rate
+    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${start} ${end} ${spiceCoefficient(coefficient)}`)
   }
   for (let p = 0; p < poles.length; p++) for (const kind of ['RS', 'LP'] as const) for (let i = 0; i < before.length; i++) {
     if (terms[i].length || (!(rest[i] > 0) && own[i] > 0)) continue
-    const resistance = rest[i] * poles[p].skin
-    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${p ? stages[p - 1][i] : middle[i]} ${stages[p][i]} ${number(kind === 'RS' ? resistance : resistance / poles[p].rate)}`)
+    let coefficient = rest[i] * poles[p].skin
+    if (kind === 'LP') coefficient /= poles[p].rate
+    let start = middle[i]
+    if (p > 0) start = stages[p - 1][i]
+    lines.push(`${kind[0]}${tag}${kind[1]}${p}${i} ${start} ${stages[p][i]} ${spiceCoefficient(coefficient)}`)
   }
   for (let i = 0; i < before.length; i++) {
     if (!terms[i].length) continue
     const self = rest[i]
     const scale = 1 / Math.sqrt(self)
     const x = `${tag}Sx${i}`
-    lines.push(`G${tag}SI${i} ${middle[i]} ${after[i]} ${x} 0 ${number(scale)}`, `G${tag}SV${i} ${x} 0 ${middle[i]} ${after[i]} ${number(-scale)}`,
+    lines.push(`G${tag}SI${i} ${middle[i]} ${after[i]} ${x} 0 ${spiceCoefficient(scale)}`, `G${tag}SV${i} ${x} 0 ${middle[i]} ${after[i]} ${spiceCoefficient(-scale)}`,
       `G${tag}SF${i} 0 ${tag}Su${i} ${x} 0 1`, `G${tag}S${i}_${i} ${x} 0 ${tag}Su${i} 0 1`)
-    for (const [j, mutual] of terms[i]) lines.push(`G${tag}S${i}_${j} ${x} 0 ${tag}Su${j} 0 ${number(mutual / Math.sqrt(self * rest[j]))}`)
+    for (const [j, mutual] of terms[i]) lines.push(`G${tag}S${i}_${j} ${x} 0 ${tag}Su${j} 0 ${spiceCoefficient(mutual / Math.sqrt(self * rest[j]))}`)
     for (const [p, pole] of poles.entries()) {
-      const node = p ? `${tag}F${p - 1}_${i}` : `${tag}Su${i}`
-      const next = p === poles.length - 1 ? '0' : `${tag}F${p}_${i}`
-      lines.push(`R${tag}F${p}_${i} ${node} ${next} ${number(pole.skin)}`, `L${tag}F${p}_${i} ${node} ${next} ${number(pole.skin / pole.rate)}`)
+      let node = `${tag}Su${i}`
+      if (p > 0) node = `${tag}F${p - 1}_${i}`
+      let next = '0'
+      if (p < poles.length - 1) next = `${tag}F${p}_${i}`
+      lines.push(`R${tag}F${p}_${i} ${node} ${next} ${spiceCoefficient(pole.skin)}`, `L${tag}F${p}_${i} ${node} ${next} ${spiceCoefficient(pole.skin / pole.rate)}`)
     }
   }
-  return own.filter((value, i) => value < strip[i]).length
+  return own.filter((coefficient, i) => coefficient < strip[i]).length
 }
 
 /** Exact sparse realization for symmetric diagonally dominant energy matrices, including positive mutual entries. */
-export function shuntEnergy(lines: string[], tag: string, nodes: string[], matrix: RouteEnergy, rate?: number): void {
-  const remainder = matrix.rows.map((row, i) => (row.get(i) ?? 0) - matrix.entries(i).reduce((total, [j, value]) => total + (i === j ? 0 : Math.abs(value)), 0))
-  if (remainder.some(value => value < -1e-20)) {
-    modalShunt(lines, tag, nodes, matrix, rate)
+export function shuntEnergy({ lines, tag, nodes, matrix, rate }: { lines: string[]; tag: string; nodes: string[]; matrix: RouteEnergy; rate?: number }): void {
+  const remainder = matrix.rows.map((row, i) => (row.get(i) ?? 0) - matrix.entries(i).reduce((total, [j, coefficient]) => {
+    if (i === j) return total
+    return total + Math.abs(coefficient)
+  }, 0))
+  if (remainder.some(coefficient => coefficient < -1e-20)) {
+    modalShunt({ lines, tag, nodes, matrix, rate })
     return
   }
   const terms: { a: string; b: string; c: number; sum: boolean }[] = nodes.map((node, i) => ({ a: node, b: '0', c: Math.max(0, remainder[i]), sum: false }))
-  for (let i = 0; i < nodes.length; i++) for (const [j, value] of matrix.entries(i)) if (j > i && Math.abs(value) > 1e-23) terms.push({ a: nodes[i], b: nodes[j], c: Math.abs(value), sum: value > 0 })
+  for (let i = 0; i < nodes.length; i++) for (const [j, coefficient] of matrix.entries(i)) if (j > i && Math.abs(coefficient) > 1e-23) terms.push({ a: nodes[i], b: nodes[j], c: Math.abs(coefficient), sum: coefficient > 0 })
   for (const [i, term] of terms.entries()) {
     if (term.c <= 1e-23 || (!term.sum && term.a === term.b)) continue
     const name = `${tag}S${i}`
+    let reference = term.b
+    let node = term.a
     if (term.sum) {
-      lines.push(`E${name} ${name}a ${term.a} ${term.b} 0 1`, `V${name} ${name}a ${name}b 0`, `C${name} ${name}b ${rate ? `${name}c` : '0'} ${number(term.c)}`,
-        `F${name}b ${term.b} 0 V${name} 1`)
-      if (rate) lines.push(`R${name} ${name}c 0 ${number(1 / (rate * term.c))}`)
-    } else {
-      lines.push(`C${name} ${term.a} ${rate ? `${name}c` : term.b} ${number(term.c)}`)
-      if (rate) lines.push(`R${name} ${name}c ${term.b} ${number(1 / (rate * term.c))}`)
+      reference = '0'
+      node = `${name}b`
+      lines.push(`E${name} ${name}a ${term.a} ${term.b} 0 1`, `V${name} ${name}a ${name}b 0`)
     }
+    let end = reference
+    if (rate) end = `${name}c`
+    lines.push(`C${name} ${node} ${end} ${spiceCoefficient(term.c)}`)
+    if (term.sum) lines.push(`F${name}b ${term.b} 0 V${name} 1`)
+    if (rate) lines.push(`R${name} ${name}c ${reference} ${spiceCoefficient(1 / (rate * term.c))}`)
   }
 }
 
 /** LDL energy factors realize a PSD dielectric-loss matrix even when it is not a Maxwell matrix. */
-function modalShunt(lines: string[], tag: string, nodes: string[], matrix: RouteEnergy, rate?: number): void {
+function modalShunt({ lines, tag, nodes, matrix, rate }: { lines: string[]; tag: string; nodes: string[]; matrix: RouteEnergy; rate?: number }): void {
   if (nodes.length ** 2 > 500_000) throw new Error('Route energy modal realization exceeds 500000 dense entries')
   const residual = matrix.rows.map((row) => nodes.map((_, j) => row.get(j) ?? 0))
   for (let mode = 0; mode < nodes.length; mode++) {
     const capacitance = residual[mode][mode]
     if (capacitance < -1e-20) throw new Error(`${tag}: negative energy pivot`)
     if (capacitance <= 1e-24) continue
-    const weights = residual.map((row, i) => i < mode ? 0 : row[mode] / capacitance)
-    const expression = weights.flatMap((weight, i) => nodes[i] === '0' || Math.abs(weight) < 1e-12 ? [] : [`${number(weight)}*v(${nodes[i]})`]).join('+')
+    const weights = residual.map((row, i) => {
+      if (i < mode) return 0
+      return row[mode] / capacitance
+    })
+    const expression = weights.flatMap((weight, i) => {
+      if (nodes[i] === '0' || Math.abs(weight) < 1e-12) return []
+      return [`${spiceCoefficient(weight)}*v(${nodes[i]})`]
+    }).join('+')
     if (expression) {
       const name = `${tag}M${mode}`
-      lines.push(`E${name} ${name}a 0 value={${expression}}`, `V${name} ${name}a ${name}b 0`, `C${name} ${name}b ${rate ? `${name}c` : '0'} ${number(capacitance)}`)
-      if (rate) lines.push(`R${name} ${name}c 0 ${number(1 / (rate * capacitance))}`)
-      for (const [i, weight] of weights.entries()) if (nodes[i] !== '0' && Math.abs(weight) >= 1e-12) lines.push(`F${name}_${i} ${nodes[i]} 0 V${name} ${number(weight)}`)
+      let end = '0'
+      if (rate) end = `${name}c`
+      lines.push(`E${name} ${name}a 0 value={${expression}}`, `V${name} ${name}a ${name}b 0`, `C${name} ${name}b ${end} ${spiceCoefficient(capacitance)}`)
+      if (rate) lines.push(`R${name} ${name}c 0 ${spiceCoefficient(1 / (rate * capacitance))}`)
+      for (const [i, weight] of weights.entries()) if (nodes[i] !== '0' && Math.abs(weight) >= 1e-12) lines.push(`F${name}_${i} ${nodes[i]} 0 V${name} ${spiceCoefficient(weight)}`)
     }
     for (let i = mode + 1; i < nodes.length; i++) for (let j = mode + 1; j < nodes.length; j++) residual[i][j] -= capacitance * weights[i] * weights[j]
   }

@@ -27,14 +27,15 @@ function settledIndex(deviations: number[], limit: number): number {
 }
 
 /** Check original two-fixture voltages AND the extracted coefficients, including the complete tail. */
-function settledTail(buffer: IbisBuffer, corner: IbisCorner, edge: Edge, weights: Weights, physicalPin: string): SwitchingTail | undefined {
-  const target = edge === 'rising' ? [1, 0] : [0, 1]
-  const deviations = weights.map(row => Math.max(Math.abs(row[1] - target[0]), Math.abs(row[2] - target[1])))
+function settledTail({ buffer, corner, edge, weights, physicalPin }: { buffer: IbisBuffer; corner: IbisCorner; edge: Edge; weights: Weights; physicalPin: string }): SwitchingTail | undefined {
+  const pullup = Number(edge === 'rising')
+  const pulldown = 1 - pullup
+  const deviations = weights.map(row => Math.max(Math.abs(row[1] - pullup), Math.abs(row[2] - pulldown)))
   const index = settledIndex(deviations, tolerance)
   if (index === weights.length) return undefined
   let time = weights[index][0]
   const waves = buffer.waveforms.filter(wave => wave.kind === edge).slice(0, 2)
-  const tables = waves.map(wave => wave.data.map(([t, ...values]) => [t, cornerValue(values, corner, edge)] as [number, number]))
+  const tables = waves.map(wave => wave.data.map(([time, ...voltages]) => [time, cornerValue(voltages, corner, edge)] as [number, number]))
   for (const table of tables) {
     const final = table.at(-1)![1]
     const limit = tolerance * Math.abs(final - table[0][1])
@@ -51,24 +52,33 @@ function settledTail(buffer: IbisBuffer, corner: IbisCorner, edge: Edge, weights
     fixtures: tables.map((table, i) => ({
       resistanceOhms: waves[i].resistance, voltage: cornerValue(waves[i].fixtureVoltage, corner, 'V_fixture'),
       toleranceVolts: tolerance * Math.abs(table.at(-1)![1] - table[0][1]),
-      maxDeviationVolts: Math.max(...[interpolate(table, time), ...table.filter(row => row[0] >= time).map(row => row[1])].map(value => Math.abs(value - table.at(-1)![1]))),
+      maxDeviationVolts: Math.max(...[interpolate(table, time), ...table.filter(row => row[0] >= time).map(row => row[1])].map(voltage => Math.abs(voltage - table.at(-1)![1]))),
     })),
   }
 }
 
 /** Stitch full measured coefficient edges, discarding only proven settled tails when necessary. */
-function scheduleWeights(buffer: IbisBuffer, corner: IbisCorner, schedule: LogicalSchedule, physicalPin: string, document: IbisDocument, tails: SwitchingTail[]): Weights {
-  const steady = schedule.initialState ? [1, 0] : [0, 1]
-  const samples: Weights = [[0, steady[0], steady[1]]]
-  if (!schedule.transitions.length) return [...samples, [schedule.duration, steady[0], steady[1]]]
+function scheduleWeights({ buffer, corner, schedule, physicalPin, document, tails }: {
+  buffer: IbisBuffer
+  corner: IbisCorner
+  schedule: LogicalSchedule
+  physicalPin: string
+  document: IbisDocument
+  tails: SwitchingTail[]
+}): Weights {
+  const pullup = Number(Boolean(schedule.initialState))
+  const pulldown = 1 - pullup
+  const samples: Weights = [[0, pullup, pulldown]]
+  if (!schedule.transitions.length) return [...samples, [schedule.duration, pullup, pulldown]]
   const converted = convertIbisBuffer(document, buffer.name, { corner, mode: 'output' })
   for (const [i, transition] of schedule.transitions.entries()) {
-    const edge = transition.state ? 'rising' : 'falling'
+    let edge: Edge = 'falling'
+    if (transition.state) edge = 'rising'
     let weights = converted.weights![edge]
     if (weights[0][0] !== 0) throw new IbisError('unsupported_waveforms', 'Switching waveform must start at zero relative time')
     const next = schedule.transitions[i + 1]?.time
     if (next !== undefined && transition.time + weights.at(-1)![0] >= next) {
-      const tail = settledTail(buffer, corner, edge, weights, physicalPin)
+      const tail = settledTail({ buffer, corner, edge, weights, physicalPin })
       if (!tail || transition.time + tail.retainedDurationSeconds > next)
         throw new IbisError('overlapping_edges', `${buffer.name}: actual ${edge} transition has not settled before the next edge (1% fixture swing and 0.01 switching-coefficient tolerances); active-transition interruption is unsupported`)
       weights = weights.filter(row => row[0] <= tail.retainedDurationSeconds)
@@ -95,7 +105,7 @@ function scheduleWeights(buffer: IbisBuffer, corner: IbisCorner, schedule: Logic
 }
 
 /** Use upstream pin/reference and die-buffer conversion; the pipeline owns explicit edge scheduling. */
-export function convertSwitching(bytes: Uint8Array, input: ModelRunDefinition, document: IbisDocument): PackagedComponent {
+export function convertSwitching({ bytes, input, document }: { bytes: Uint8Array; input: ModelRunDefinition; document: IbisDocument }): PackagedComponent {
   // Validate the ORIGINAL pattern before building the steady electrical skeleton.
   for (const stimulus of Object.values(input.run.stimuli)) logicalBitSchedule(stimulus, input.run.duration)
   const stimuli = Object.fromEntries(Object.entries(input.run.stimuli).map(([port, stimulus]) => [port,
@@ -108,7 +118,7 @@ export function convertSwitching(bytes: Uint8Array, input: ModelRunDefinition, d
     const buffer = document.getBuffer(pin.model)
     const schedule = logicalBitSchedule(stimulus, input.run.duration, buffer.polarity)
     pin.stimulusHash = schedule.sha256
-    const samples = scheduleWeights(buffer, input.definition.corner, schedule, pin.physicalPin, document, tails)
+    const samples = scheduleWeights({ buffer, corner: input.definition.corner, schedule, physicalPin: pin.physicalPin, document, tails })
     for (const [label, column] of [['KU', 1], ['KD', 2]] as const) {
       converted.source = converted.source.replace(new RegExp(`^V${label}${i} (\\S+ \\S+) PWL\\(.*\\)$`, 'm'), (_, nodes: string) =>
         `V${label}${i} ${nodes} PWL(${samples.map(row => `${spiceNumber(row[0])} ${spiceNumber(row[column])}`).join(' ')})`)

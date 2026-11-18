@@ -16,12 +16,12 @@ export function parseSpiceVectors(text: string): SpiceVector[] {
     return { name: name.toLowerCase(), type, values: [] as number[] }
   })
   if (vectors.length !== count || new Set(vectors.map(vector => vector.name)).size !== count) fail('waveform', 'Invalid ngspice variable count or duplicate name')
-  const values = header[1].trim().split(/\s+/).map(Number)
-  if (values.length !== points * (count + 1) || values.some(value => !Number.isFinite(value))) fail('waveform', 'Expected one finite value per ngspice vector and sample')
+  const samples = header[1].trim().split(/\s+/).map(Number)
+  if (samples.length !== points * (count + 1) || samples.some(sample => !Number.isFinite(sample))) fail('waveform', 'Expected one finite value per ngspice vector and sample')
   for (let sample = 0; sample < points; sample++) {
     const offset = sample * (count + 1)
-    if (values[offset] !== sample) fail('waveform', 'Invalid ngspice sample index')
-    for (let column = 0; column < count; column++) vectors[column].values.push(values[offset + column + 1])
+    if (samples[offset] !== sample) fail('waveform', 'Invalid ngspice sample index')
+    for (let column = 0; column < count; column++) vectors[column].values.push(samples[offset + column + 1])
   }
   return vectors
 }
@@ -29,7 +29,7 @@ export function parseSpiceVectors(text: string): SpiceVector[] {
 /** Format real vectors for protocol fixtures using the native batch transport. */
 export function formatSpiceVectors(vectors: SpiceVector[]): string {
   const points = vectors[0]?.values.length ?? 0
-  if (vectors.length < 2 || points < 2 || vectors.some(vector => vector.values.length !== points || vector.values.some(value => !Number.isFinite(value)) || !/^\S+$/.test(vector.name) || !/^\S+$/.test(vector.type)))
+  if (vectors.length < 2 || points < 2 || vectors.some(vector => vector.values.length !== points || vector.values.some(sample => !Number.isFinite(sample)) || !/^\S+$/.test(vector.name) || !/^\S+$/.test(vector.type)))
     fail('waveform', 'Expected complete finite real engine vectors')
   const lines = ['Title: Routed transient', 'Plotname: Transient Analysis', 'Flags: real', `No. Variables: ${vectors.length}`, `No. Points: ${points}`, 'Variables:', ...vectors.map((vector, i) => `\t${i}\t${vector.name}\t${vector.type}`), 'Values:']
   for (let sample = 0; sample < points; sample++) lines.push(`${sample}\t${vectors.map(vector => vector.values[sample]).join('\n\t')}`)
@@ -42,12 +42,17 @@ export function spiceProbeRows(text: string, probes: readonly { signalNode: stri
   const times = vectors.get('time')
   if (!times) return fail('waveform', 'Missing ngspice time vector')
   if (times.some((time, i) => i > 0 && time < times[i - 1])) fail('waveform', 'Expected increasing actual solver timestamps')
-  /** Ground is implicit; every other requested node must be present. */
-  const node = (name: string, sample: number): number => {
-    if (name === '0') return 0
-    const values = vectors.get(`v(${name.toLowerCase()})`)
-    if (!values) return fail('waveform', `Missing ngspice vector v(${name})`)
-    return values[sample]
-  }
-  return times.flatMap((time, i) => i < times.length - 1 && time === times[i + 1] ? [] : [[time, ...probes.map(probe => node(probe.signalNode, i) - node(probe.referenceNode, i))]])
+  return times.flatMap((time, sample) => {
+    if (sample < times.length - 1 && time === times[sample + 1]) return []
+    return [[time, ...probes.map(({ signalNode, referenceNode }) =>
+      nodeVoltage({ name: signalNode, sample }, vectors) - nodeVoltage({ name: referenceNode, sample }, vectors))]]
+  })
+}
+
+/** Ground is implicit; every other requested node must be present. */
+function nodeVoltage({ name, sample }: { name: string; sample: number }, vectors: ReadonlyMap<SpiceVector['name'], number[]>): number {
+  if (name === '0') return 0
+  const voltage = vectors.get(`v(${name.toLowerCase()})`)
+  if (!voltage) return fail('waveform', `Missing ngspice vector v(${name})`)
+  return voltage[sample]
 }
