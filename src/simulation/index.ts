@@ -11,3 +11,6 @@ export type { SimulationModeling, CircuitNodes, PipelineIbisModel, VoltageProbeP
 export { circuitNodes, generalDeclarations, modelRunDefinition } from './declarations'
 export { namespaceSpice, electricalSources } from './netlist'
 export { transmittedBits } from './stimulus'
+
+
+export type { RoutedCompileOptions, RouteBindingsInput } from './routed-types'
