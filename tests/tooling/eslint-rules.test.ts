@@ -7,7 +7,10 @@ import plugin from '../../tools/eslint/rules.mjs'
 // The custom rules in tools/eslint/rules.mjs, checked on small inputs.
 RuleTester.describe = describe
 RuleTester.it = it
-RuleTester.itOnly = it.only
+/** Resolve Bun's focused runner only for a focused case, preserving its CI guard. */
+RuleTester.itOnly = (name: string, run: () => void): void => {
+  it.only(name, run)
+}
 const rules = plugin.rules as unknown as Record<string, Rule.RuleModule>
 const root = join(import.meta.dirname, '..', '..')
 const tester = new RuleTester({ languageOptions: { parser: tseslint.parser } })
