@@ -2,7 +2,7 @@ import React from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from '../support/core-render'
-import { channelCopperScope, connectedSourceIds, segmentRoutes, type CircuitJson } from '../../src/board'
+import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, segmentRoutes, type CircuitJson } from '../../src/board'
 
 /** Two same-net strips meet exactly at their edges, as on the board's DDR power rail. */
 function TouchingRail({ 'same-net': sameNet = true }: { 'same-net'?: boolean }): React.JSX.Element {
@@ -19,7 +19,8 @@ test('TSX touching same-net rail strips form one physical conductor before extra
   const circuit = await renderCoreSignals(<TouchingRail />)
   const rail = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'RAIL')!
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
-  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, rail.source_net_id), reference: connectedSourceIds(circuit, ground.source_net_id) })
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
+  const scope = channelCopperScope({ circuit, connectivity, selected: sourceNetMembers(connectivity, rail.source_net_id), reference: sourceNetMembers(connectivity, ground.source_net_id) })
   const geometry = segmentRoutes(circuit, scope)
   assert.ok(geometry.wires.some(wire => Math.abs(wire.width - .6) < 1e-7 && wire.joins?.length))
   const separate = await renderCoreSignals(<TouchingRail same-net={false} />).catch((error: Error & { circuitJson: CircuitJson }) => {

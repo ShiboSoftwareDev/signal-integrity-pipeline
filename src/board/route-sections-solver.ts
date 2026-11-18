@@ -1,6 +1,6 @@
 import { BaseSolver } from '@tscircuit/solver-utils'
 import { rootScope, snapshot, type Produced } from '../kernel'
-import { connectedSourceIds } from './connectivity'
+import { getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers } from './connectivity'
 import { routeSectionSteps, routeContactFrame, type SectionGeometry } from './route-sections'
 import type { CircuitJson } from './schema'
 import type { CopperScope } from './geometry/scope'
@@ -28,7 +28,8 @@ export class RouteSectionsSolver extends BaseSolver {
   /** Capture source values and correct the owned AC rail scope. */
   constructor(private readonly input: RouteSectionsInput) {
     super()
-    const ground = connectedSourceIds(input.circuitJson, input.referenceSourcePortId)
+    const connectivity = getSourcePortConnectivityMapFromCircuitJson(input.circuitJson)
+    const ground = sourceNetMembers(connectivity, input.referenceSourcePortId)
     const traces = input.circuitJson.filter(record => record.type === 'source_trace').filter(trace => [...trace.connected_source_port_ids, ...trace.connected_source_net_ids ?? []].some(id => ground.has(id))).map(trace => trace.source_trace_id)
     this.scope = { ...input.scope, nonReferenceRailTraceIds: [...input.scope.nonReferenceRailTraceIds, ...input.circuitJson.filter(record => record.type === 'pcb_trace').filter(trace => traces.includes(trace.source_trace_id!)).map(trace => trace.pcb_trace_id)] }
   }
