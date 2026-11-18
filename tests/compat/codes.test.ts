@@ -10,15 +10,17 @@ const src = join(repo, 'src')
 
 // Pinned diagnostic codes.
 const RAISED = [
-  'artifact_collision', 'artifact_path', 'channel_fanout', 'channel_model', 'channel_net', 'channel_short',
-  'circuit_schema', 'electrical_input', 'file_path', 'floating_source', 'ibis_asset', 'ibis_asset_missing',
-  'ibis_contract', 'ibis_mapping', 'ibis_model', 'ibis_state', 'matrix_format', 'matrix_zero',
-  'mesh_convergence', 'native_declaration', 'native_geometry', 'native_output', 'native_solver', 'native_timeout',
-  'passive_capability', 'passive_reference', 'passivity', 'pin_mapping', 'probe_reference', 'reciprocity',
-  'route_type', 'simulation_capability', 'simulation_experiment', 'simulation_id', 'simulation_probe', 'simulation_reference',
-  'simulation_scope', 'simulation_timing', 'solver_result', 'source_capability', 'source_edge', 'stackup',
-  'stimulus_coverage', 'stimulus_duplicate', 'stimulus_missing', 'stimulus_pattern', 'stimulus_state', 'supply_missing',
-  'supply_reference', 'supply_short', 'via_geometry',
+  'artifact_collision', 'artifact_path', 'channel_fanout', 'channel_model', 'channel_net',
+  'channel_short', 'circuit_schema', 'electrical_input', 'file_path', 'floating_source',
+  'ibis_asset', 'ibis_asset_missing', 'ibis_contract', 'ibis_mapping', 'ibis_model',
+  'ibis_state', 'matrix_format', 'matrix_zero', 'mesh_convergence',
+  'native_declaration', 'native_geometry', 'native_output', 'native_solver', 'native_timeout',
+  'passive_capability', 'passive_reference', 'passivity', 'pin_mapping', 'probe_reference',
+  'reciprocity', 'route_type', 'simulation_capability', 'simulation_duration', 'simulation_experiment',
+  'simulation_id', 'simulation_probe', 'simulation_reference', 'simulation_scope', 'simulation_start',
+  'simulation_timing', 'solver_result', 'source_capability', 'source_edge', 'stackup',
+  'stimulus_coverage', 'stimulus_duplicate', 'stimulus_missing', 'stimulus_pattern', 'stimulus_state',
+  'supply_missing', 'supply_reference', 'supply_short', 'via_geometry', 'waveform',
 ].sort()
 
 /** Reads the DiagnosticCode union from src/modules.generated.ts as a list of its literal members. */
@@ -87,5 +89,5 @@ test('every literal code raised in non-legacy src/ is in the pinned set', () => 
   const raised = literalRaises()
   const unknown = [...raised].filter(([code]) => !pinned.has(code)).map(([code, files]) => `${code} (${[...new Set(files)].join(', ')})`)
   assert.deepEqual(unknown, [])
-  assert.ok(raised.size >= 40, `scanner found ${raised.size} codes in the surviving module surfaces`)
+  assert.ok(raised.size >= 54, `scanner found ${raised.size} codes; removed legacy API paths must still leave the active diagnostics scanned`)
 })

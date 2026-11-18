@@ -5,7 +5,7 @@ import * as node from '../../src/adapters'
 
 // The routed compiler/execution entry points and the public board/stimulus helpers.
 // (Type-only exports are pinned by `pnpm typecheck` of the consumer tests, not here.)
-const ROOT = ['stackupFromCircuitJson', 'transmittedBits']
+const ROOT = ['RouteTransientSolver', 'stackupFromCircuitJson', 'transmittedBits']
 const NODE = ['createNativeSolver', 'loadIbisSources']
 
 test('root entry exports exactly today\'s runtime names, all functions', () => {
