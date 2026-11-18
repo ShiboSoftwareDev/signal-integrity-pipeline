@@ -2,6 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parsePackageModel } from '../../src/buffers/package-model'
 
+/** Rewrite fixture keywords in the uppercase, underscore-separated spelling. */
+function underscoreKeywords(source: string): string {
+  let text = ''
+  let start = 0
+  while (start < source.length) {
+    const open = source.indexOf('[', start)
+    if (open < 0) break
+    const close = source.indexOf(']', open + 1)
+    if (close < 0) break
+    text += source.slice(start, open + 1) + source.slice(open + 1, close).replaceAll(' ', '_').toUpperCase() + ']'
+    start = close + 1
+  }
+  return text + source.slice(start)
+}
+
 /** Small original fixture; numeric-looking names still follow the declared pin order. */
 function fixture(data: string, pins: string[] = ['Z9', 'A1', '7']): string {
   return `[Define Package Model] Example package
@@ -36,7 +51,7 @@ test('IBIS package matrices use named upper-triangle rows, exact widths and expl
   }
   const valid = fixture(`[Resistance Matrix] Banded_matrix\n[Bandwidth] 0\n[Row] Z9\n1m\n[Row] A1\n2m\n[Row] 7\n3m\n[Inductance Matrix] Sparse_matrix\n${sparse}\n[Capacitance Matrix] Full_matrix\n${full}`)
   assert.equal(parsePackageModel(valid, 'Example package').R[1][1], .002)
-  assert.deepEqual(parsePackageModel(valid.replace(/\[([^\]]+)\]/g, (_, key) => `[${key.replaceAll(' ', '_').toUpperCase()}]`), 'Example package').pins, ['Z9', 'A1', '7'])
+  assert.deepEqual(parsePackageModel(underscoreKeywords(valid), 'Example package').pins, ['Z9', 'A1', '7'])
   assert.deepEqual(parsePackageModel('[Comment Char] #_char\n' + valid.replace('7 -0.5n', '7 -0.5n # ignored column'), 'Example package').pins, ['Z9', 'A1', '7'])
   assert.deepEqual(parsePackageModel('[Comment Char] |_char\n' + valid.replace('[Model Data]', '[Comment Char] #_char\n[Model Data]'), 'Example package').pins, ['Z9', 'A1', '7'])
   for (const [text, error] of [

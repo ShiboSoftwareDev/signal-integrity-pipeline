@@ -5,9 +5,10 @@ import { selectPackageModel, type SelectedPackageModel } from './package-matrix'
 type PackageRail = 'pullup' | 'pulldown'
 
 /** POWER and GND can share their package bus with a listed pin. */
-function packageRail(model: string): PackageRail | undefined {
-  if (/^power$/i.test(model)) return 'pullup'
-  if (/^gnd$/i.test(model)) return 'pulldown'
+export function packageRail(model: string): PackageRail | undefined {
+  const name = model.toLowerCase()
+  if (name === 'power') return 'pullup'
+  if (name === 'gnd') return 'pulldown'
   return undefined
 }
 

@@ -1,6 +1,7 @@
 import { convertIbisModelToSpice, convertIbisBuffer, logicalBitSchedule, ibisTimeSeconds, cornerValue, interpolate, sourceHash, spiceNumber, IbisError } from '@tscircuit/ibis-to-spice'
 import type { IbisBuffer, IbisCorner, IbisDocument, LogicalSchedule } from '@tscircuit/ibis-to-spice'
 import type { ModelRunDefinition, PackagedComponent } from './types'
+import { lineRanges, subcircuitHeader, tokenEnd } from './text'
 
 type Weights = Array<[number, number, number]>
 type Edge = 'rising' | 'falling'
@@ -104,6 +105,29 @@ function scheduleWeights({ buffer, corner, schedule, physicalPin, document, tail
   return samples
 }
 
+/** Read the two nodes of a generated PWL voltage line. */
+function pwlNodes(line: string, voltage: string): string | undefined {
+  if (!line.startsWith(voltage + ' ') || !line.endsWith(')')) return undefined
+  const first = voltage.length + 1
+  const firstEnd = tokenEnd(line, first)
+  if (firstEnd === first || line[firstEnd] !== ' ') return undefined
+  const second = firstEnd + 1
+  const secondEnd = tokenEnd(line, second)
+  if (secondEnd === second || !line.startsWith(' PWL(', secondEnd)) return undefined
+  return line.slice(first, secondEnd)
+}
+
+/** Replace the first matching generated source, retaining its nodes and line separator. */
+function replacePwl({ source, voltage, samples, column }: { source: string; voltage: string; samples: Weights; column: 1 | 2 }): string {
+  for (const { start, end } of lineRanges(source)) {
+    const nodes = pwlNodes(source.slice(start, end), voltage)
+    if (nodes === undefined) continue
+    const points = samples.map(row => `${spiceNumber(row[0])} ${spiceNumber(row[column])}`).join(' ')
+    return source.slice(0, start) + `${voltage} ${nodes} PWL(${points})` + source.slice(end)
+  }
+  return source
+}
+
 /** Use upstream pin/reference and die-buffer conversion; the pipeline owns explicit edge scheduling. */
 export function convertSwitching({ bytes, input, document }: { bytes: Uint8Array; input: ModelRunDefinition; document: IbisDocument }): PackagedComponent {
   // Validate the ORIGINAL pattern before building the steady electrical skeleton.
@@ -120,13 +144,12 @@ export function convertSwitching({ bytes, input, document }: { bytes: Uint8Array
     pin.stimulusHash = schedule.sha256
     const samples = scheduleWeights({ buffer, corner: input.definition.corner, schedule, physicalPin: pin.physicalPin, document, tails })
     for (const [label, column] of [['KU', 1], ['KD', 2]] as const) {
-      converted.source = converted.source.replace(new RegExp(`^V${label}${i} (\\S+ \\S+) PWL\\(.*\\)$`, 'm'), (_, nodes: string) =>
-        `V${label}${i} ${nodes} PWL(${samples.map(row => `${spiceNumber(row[0])} ${spiceNumber(row[column])}`).join(' ')})`)
+      converted.source = replacePwl({ source: converted.source, voltage: `V${label}${i}`, samples, column })
     }
     return schedule
   })
   // Match upstream identity for untouched schedules, including source and true stimulus hashes.
-  const original = /^\.subckt (\S+)/m.exec(converted.source)![1]
+  const original = subcircuitHeader(converted.source)![1]
   const name = `IBIS_${sourceHash(JSON.stringify([converted.metadata, schedules, ibisTimeSeconds(input.run.duration)])).slice(0, 20)}`
   converted.source = converted.source.replaceAll(original, name)
   if (tails.length) {

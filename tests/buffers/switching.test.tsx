@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { convertIbisModelToSpice, cornerValue, interpolate, logicalBitSchedule, parseIbis, switchingWeights, type IbisDocument } from '@tscircuit/ibis-to-spice'
 import { convertPackaged } from '../../src/buffers/package'
 import { convertSwitching } from '../../src/buffers/switching'
+import { lineRanges, splitWords, subcircuitHeader } from '../../src/buffers/text'
 import { referenceVoltages } from '../../src/buffers/inspect'
 import { createNativeSolver } from '../../src/adapters'
 import { sha256 } from '../../src/kernel'
@@ -46,6 +47,22 @@ ${(['rising', 'falling'] as const).flatMap(kind => [0, 1.5].map(voltage =>
     return `${time}n ${value} ${value} ${value}`
   }).join('\n'))).join('\n')}
 [End]`
+
+/** Recover emitted PWL knots so assertions exercise the electrical artifact. */
+function points(text: string, label: 'KU' | 'KD'): Array<[number, number]> {
+  const prefix = `V${label}0 `
+  let match: [string, string] | null = null
+  for (const { start, end } of lineRanges(text)) {
+    const line = text.slice(start, end)
+    if (!line.startsWith(prefix) || !line.endsWith(')')) continue
+    const open = line.lastIndexOf('PWL(')
+    if (open < prefix.length) continue
+    match = [line, line.slice(open + 'PWL('.length, -1)]
+    break
+  }
+  const values = splitWords(match![1]).map(Number)
+  return values.filter((_, i) => i % 2 === 0).map((value, i) => [value, values[i * 2 + 1]])
+}
 
 test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.25 ns bit', async () => {
   const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
@@ -91,11 +108,6 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
   function convert(next: ModelRunDefinition, text: string = source): ReturnType<typeof convertPackaged> {
     return convertPackaged({ bytes: new TextEncoder().encode(text), input: { ...next, definition: { ...next.definition, source: { content: text } } } })
   }
-  /** Recover emitted PWL knots so assertions exercise the electrical artifact. */
-  function points(text: string, label: string): Array<[number, number]> {
-    const values = new RegExp(`^V${label}0 .*PWL\\((.*)\\)$`, 'm').exec(text)![1].split(/\s+/).map(Number)
-    return values.filter((_, i) => i % 2 === 0).map((value, i) => [value, values[i * 2 + 1]])
-  }
   const knots = points(converted.source, 'KU')
   assert.ok(knots.every((row, i) => i === 0 || row[0] > knots[i - 1][0]))
   assert.equal(knots.at(-1)![0], 5e-9)
@@ -104,7 +116,7 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
   // A femtosecond hold before each table forced the routed DDR deck below ngspice's minimum step.
   const table = switchingWeights(parseIbis(source).getBuffer('driver'), 'typical', 'rising')
   const resolution = Math.min(...table.slice(1).map((row, i) => row[0] - table[i][0]))
-  for (const label of ['KU', 'KD']) {
+  for (const label of ['KU', 'KD'] as const) {
     const column = points(converted.source, label)
     assert.ok(column.every((row, i) => i === 0 || row[0] - column[i - 1][0] >= resolution * (1 - 1e-9)), `${label} has no stitch interval finer than the IBIS table`)
     const edge = column.findIndex(row => Math.abs(row[0] - 1.25e-9) < 1e-18)
@@ -162,11 +174,11 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
   const traces: Array<Array<[number, number]>> = []
   for (const [model, duration] of [[converted, '5n'], [convert(long), '10n']] as const) {
     const nodes = Object.values(model.spicePinMapping).map(port => port === pinMap['1'] ? 'out' : port === pinMap['2'] ? 'vdd' : 'vss')
-    const name = /^\.subckt (\S+)/m.exec(model.source)![1]
+    const name = subcircuitHeader(model.source)![1]
     const deck = `Buffer-only settled tail oracle\n${model.source}\nXU ${nodes.join(' ')} ${name}\nRload out vss 50\n.control\nset wr_singlescale\nset wr_vecnames\ntran 2p ${duration}\nwrdata waveform.dat v(out)\nquit\n.endc\n.end\n`
     const output = await solve({ solver: 'ngspice', files: { 'buffer.cir': deck }, args: ['-n', '-b', 'buffer.cir'], outputFiles: ['waveform.dat'] })
     assert.doesNotMatch(output.stdout + output.stderr, /error|fatal|aborted|timestep too small/i)
-    traces.push(output.files['waveform.dat'].trim().split('\n').slice(1).map(line => line.trim().split(/\s+/).map(Number) as [number, number]))
+    traces.push(output.files['waveform.dat'].trim().split('\n').slice(1).map(line => splitWords(line.trim()).map(Number) as [number, number]))
   }
   for (const time of [.1e-9, .3e-9, .5e-9, .7e-9, 1e-9]) {
     assert.ok(Math.abs(interpolate(traces[0], time) - interpolate(traces[1], time)) < .002)
