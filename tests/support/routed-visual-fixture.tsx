@@ -10,7 +10,7 @@ import { formatSpiceVectors } from '../../src/observation'
 import type { SolverContext } from '../../src/solver'
 import type { CircuitJson } from '../../src/board'
 
-// Original synthetic model for drawing tests only; no vendor tables or native claims.
+// Original synthetic IBIS model for unit tests.
 export const routedVisualIbis = `[IBIS Ver] 4.2
 [Component] LVC1G04_DCK
 [Manufacturer] Drawing fixture

@@ -13,7 +13,11 @@ export function sliceImpedance(line: RouteCoefficients, i: number): number {
 
 /** A three-stop scale (sky, lime, orange) from the lowest to the highest impedance on the board. */
 export function impedanceColor(value: number, low: number, high: number): string {
-  const t = high > low ? Math.min(1, Math.max(0, (value - low) / (high - low))) : 0.5
+  return impedanceColorAt(high > low ? Math.min(1, Math.max(0, (value - low) / (high - low))) : 0.5)
+}
+
+/** Sample the display gradient directly so scale swatches round consistently. */
+function impedanceColorAt(t: number): string {
   const stops = [[56, 189, 248], [163, 230, 53], [251, 146, 60]]
   const [a, b] = t < 0.5 ? [stops[0], stops[1]] : [stops[1], stops[2]]
   const u = t < 0.5 ? t * 2 : t * 2 - 1
@@ -138,7 +142,7 @@ function impedanceBar(drawing: GraphicsObject, pane: Viewbox, low: number, high:
   const right = pane.maxX - (pane.maxX - pane.minX) * 0.3
   const y = pane.minY + unit * 2.5
   for (let i = 0; i < 24; i++)
-    drawing.rects!.push({ center: { x: left + ((right - left) * (i + 0.5)) / 24, y }, width: (right - left) / 24, height: unit * 1.2, fill: impedanceColor(low + ((high - low) * (i + 0.5)) / 24, low, high) })
+    drawing.rects!.push({ center: { x: left + ((right - left) * (i + 0.5)) / 24, y }, width: (right - left) / 24, height: unit * 1.2, fill: impedanceColorAt((i + 0.5) / 24) })
   routeText(drawing, left - unit, y, `${low.toFixed(0)} Ω`, routeTones.quiet, unit * 2.6, 'center_right')
   routeText(drawing, right + unit, y, `${high.toFixed(0)} Ω`, routeTones.quiet, unit * 2.6, 'center_left')
 }
