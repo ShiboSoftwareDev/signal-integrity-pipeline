@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { prepareBlocks, renderSignals } from '../support/signal-render'
-import { signalBits, endpointPorts, signalBlocks } from '../../src/pipeline/signals'
+import { compareNames, signalBits, endpointPorts, signalBlocks } from '../../src/pipeline/signals'
 import { Inverter, Reference } from '../support/signal-parts'
 import { routedVisualIbis } from '../support/routed-visual-fixture'
 import { TwoTraceBoard } from '../../examples/routed/two-trace-board'
@@ -171,4 +171,8 @@ test('numeric TSX offsets are seconds, with startup added before the finite capt
   const [prepared] = prepareBlocks({ circuit: await renderSignals(<Board offset={.5} />), sources: await sources() })
   assert.equal(prepared.signals[0].offset_ms, 500)
   assert.ok(Math.abs(prepared.duration - (.5 + 144 / 20e6)) < 1e-15)
+})
+
+test('source signal names use Unicode code point order', () => {
+  assert.ok(compareNames('\uE000', '\u{10000}') < 0)
 })

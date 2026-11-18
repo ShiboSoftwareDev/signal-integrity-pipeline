@@ -8,7 +8,7 @@ export type { CircuitJson, SimulationExperiment, SimulationIbisModel } from './s
 export { recordSchema, validateCircuitRecords } from './schema'
 export { type BoardStackup, type CopperLayer, type DielectricLayer, stackupFromCircuitJson, defaultCopperConductivitySm } from './stackup'
 export { subcircuitTree, type SubcircuitTree } from './subcircuit'
-export { connectedSourceIds } from './connectivity'
+export { getSourcePortConnectivityMapFromCircuitJson, passiveConnections, sourceConnections, sourceNetMembers, type ConnectivityMap } from './connectivity'
 export { channelCopperScope, type CopperScope } from './geometry/scope'
 export type { PortSelector, LaneModeling, SourcePort, PcbTrace, RoutePoint, RoutedPoint, LaneMapping, CopperPoint, CopperPolygon } from './geometry/types'
 export { selectPort, resolveRouteVias } from './geometry/ports'

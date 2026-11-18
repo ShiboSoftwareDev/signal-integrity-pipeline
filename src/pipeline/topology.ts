@@ -1,4 +1,5 @@
-import { connectedSourceIds, type CircuitJson, type SimulationPcbDriverReceiverChannel } from '../board'
+import { ConnectivityMap, findConnectedNetworks } from 'circuit-json-to-connectivity-map'
+import { passiveConnections, sourceConnections, sourceNetMembers, type CircuitJson, type SimulationPcbDriverReceiverChannel } from '../board'
 
 export type ConnectedSourceId = string
 
@@ -8,29 +9,13 @@ type CopperGraph = Map<CopperPointKey, Set<CopperPointKey>>
 type PcbTrace = Extract<CircuitJson[number], { type: 'pcb_trace' }>
 type RoutePoint = Exclude<PcbTrace['route'][number], { route_type: 'through_pad' }>
 
-/** Copper reachable through two-terminal passives, excluding power and ground branches. */
-export function signalTopology({ circuit, seed, rails }: {
+/** Extend the source nets through series passives for this block's rail set. */
+export function signalTopology({ circuit, rails }: {
   circuit: CircuitJson
-  seed: ConnectedSourceId
-  rails: Set<ConnectedSourceId>
-}): Set<ConnectedSourceId> {
-  const found = connectedSourceIds(circuit, seed)
-  const ports = circuit.filter(r => r.type === 'source_port')
-  const passives = circuit.filter(r => r.type === 'source_component').filter(r => ['simple_resistor', 'simple_capacitor', 'simple_inductor'].includes(r.ftype))
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const component of passives) {
-      const pins = ports.filter(port => port.source_component_id === component.source_component_id).map(port => port.source_port_id)
-      if (pins.length !== 2 || pins.some(pin => rails.has(pin)) || !pins.some(pin => found.has(pin))) continue
-      for (const pin of pins) for (const id of connectedSourceIds(circuit, pin)) {
-        if (found.has(id)) continue
-        found.add(id)
-        changed = true
-      }
-    }
-  }
-  return found
+  rails: ReadonlySet<ConnectedSourceId>
+}): ConnectivityMap {
+  const passiveBridges = passiveConnections(circuit, rails)
+  return new ConnectivityMap(findConnectedNetworks([...sourceConnections(circuit), ...passiveBridges]))
 }
 
 /** Select the approached layer when the routed point is a via. */
@@ -63,17 +48,19 @@ function reachable(starts: CopperPointKey[], graph: CopperGraph): Set<CopperPoin
 }
 
 /** Verify physical connectivity through passives and reject branched routed graphs independently of source grouping. */
-export function validateSignalGraph({ circuit, signals, rails, allowUnroutedTraces }: {
+export function validateSignalGraph({ circuit, connectivity, signalConnectivity, signals, rails, allowUnroutedTraces }: {
   circuit: CircuitJson
+  connectivity: ConnectivityMap
+  signalConnectivity: ConnectivityMap
   signals: SimulationPcbDriverReceiverChannel[]
-  rails: Set<ConnectedSourceId>
+  rails: ReadonlySet<ConnectedSourceId>
   allowUnroutedTraces: boolean
 }): void {
   const drivers = signals.map(({ driver }) => {
     if ('source_port_id' in driver) return [driver.source_port_id]
     return [driver.p_source_port_id, driver.n_source_port_id]
   })
-  const selected = new Set(drivers.flatMap(ports => ports.flatMap(port => [...signalTopology({ circuit, seed: port, rails })])))
+  const selected = new Set(drivers.flatMap(ports => ports.flatMap(port => [...sourceNetMembers(signalConnectivity, port)])))
   const sourceTraces = new Set(circuit.filter(r => r.type === 'source_trace').filter(trace => trace.connected_source_port_ids.some(port => selected.has(port)) && !trace.connected_source_port_ids.some(port => rails.has(port))).map(trace => trace.source_trace_id))
   const routes = circuit.filter(r => r.type === 'pcb_trace').filter(r => sourceTraces.has(r.source_trace_id ?? ''))
   const ports = circuit.filter(r => r.type === 'pcb_port').filter(r => selected.has(r.source_port_id))
@@ -109,18 +96,16 @@ export function validateSignalGraph({ circuit, signals, rails, allowUnroutedTrac
   }
   for (const source of circuit.filter(r => r.type === 'source_port').filter(r => selected.has(r.source_port_id))) {
     if (terminals.has(source.source_port_id)) continue
-    const copper = connectedSourceIds(circuit, source.source_port_id)
+    const copper = sourceNetMembers(connectivity, source.source_port_id)
     terminals.set(source.source_port_id, ports.filter(p => copper.has(p.source_port_id)).flatMap(p => terminals.get(p.source_port_id) ?? []))
   }
   const copperGraph = new Map([...graph].map(([key, values]) => [key, new Set(values)]))
-  for (const component of circuit.filter(r => r.type === 'source_component').filter(r => ['simple_resistor', 'simple_capacitor', 'simple_inductor'].includes(r.ftype))) {
-    const pins = circuit.filter(r => r.type === 'source_port').filter(r => r.source_component_id === component.source_component_id).map(p => p.source_port_id)
-    if (pins.length !== 2 || pins.some(pin => rails.has(pin))) continue
-    for (const a of terminals.get(pins[0]) ?? []) for (const b of terminals.get(pins[1]) ?? []) joinCopperPoints(graph, { a, b })
+  for (const [pinA, pinB] of passiveConnections(circuit, rails)) {
+    for (const a of terminals.get(pinA) ?? []) for (const b of terminals.get(pinB) ?? []) joinCopperPoints(graph, { a, b })
   }
   for (const [index, signal] of signals.entries()) {
     for (const [leg, port] of drivers[index].entries()) {
-      const topology = signalTopology({ circuit, seed: port, rails })
+      const topology = sourceNetMembers(signalConnectivity, port)
       if (!allowUnroutedTraces) {
         const traces = new Set(circuit.filter(record => record.type === 'source_trace').filter(trace => trace.connected_source_port_ids.some(id => topology.has(id)) && !trace.connected_source_port_ids.some(id => rails.has(id))).map(trace => trace.source_trace_id))
         const selected = new Set(ports.filter(pin => topology.has(pin.source_port_id) && !rails.has(pin.source_port_id)).map(pin => pin.pcb_port_id))

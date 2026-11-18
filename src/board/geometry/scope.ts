@@ -1,5 +1,5 @@
 import type { CircuitJson } from '../schema'
-import { connectedSourceIds } from '../connectivity'
+import { getSourcePortConnectivityMapFromCircuitJson, passiveConnections, sourceNetMembers, type ConnectivityMap } from '../connectivity'
 import type { PcbTrace, RoutePoint } from './types'
 
 export interface CopperScope {
@@ -24,7 +24,7 @@ type SourceTraceId = SourceTrace['source_trace_id']
 type Via = Extract<CircuitJson[number], { type: 'pcb_via' }>
 type Pad = Extract<CircuitJson[number], { type: 'pcb_smtpad' | 'pcb_plated_hole' }>
 interface CopperLayers { names: string[]; count: number }
-interface RetainedCopper { circuit: CircuitJson; retained: Set<string>; unassociatedCopper: string[] }
+interface RetainedCopper { connectivity: ConnectivityMap; retained: Set<string>; unassociatedCopper: string[] }
 
 /** Ports and nets associated with routing stay independent of spatial proximity. */
 function traceMembers(id: SourceTraceId | undefined, sources: Map<SourceTraceId, SourceTrace>): string[] {
@@ -110,11 +110,11 @@ function isNearby(candidate: Box, { seeds, distanceMm }: { seeds: Box[]; distanc
 }
 
 /** Retain the entire electrical net, with all branches and endpoint terminations. */
-function retain({ ids, label }: { ids: string[]; label: string }, { circuit, retained, unassociatedCopper }: RetainedCopper): void {
+function retain({ ids, label }: { ids: string[]; label: string }, { connectivity, retained, unassociatedCopper }: RetainedCopper): void {
   if (!ids.length) unassociatedCopper.push(label)
   for (const id of ids) {
     if (retained.has(id)) continue
-    for (const connected of connectedSourceIds(circuit, id)) retained.add(connected)
+    for (const connected of sourceNetMembers(connectivity, id)) retained.add(connected)
   }
 }
 
@@ -125,8 +125,8 @@ function retain({ ids, label }: { ids: string[]; label: string }, { circuit, ret
  * Routed admission uses 32 mm unless the caller narrows it, before its solved pair screen.
  * The cap is not an electromagnetic error bound.
  */
-export function channelCopperScope({ circuit, selected, reference, rails = new Set(), distanceMm = 1 }: {
-  circuit: CircuitJson; selected: Set<string>; reference: Set<string>; rails?: Set<string>; distanceMm?: number
+export function channelCopperScope({ circuit, connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit), selected, reference, rails = new Set(), distanceMm = 1 }: {
+  circuit: CircuitJson; connectivity?: ConnectivityMap; selected: Set<string>; reference: Set<string>; rails?: Set<string>; distanceMm?: number
 }): CopperScope {
   const count = circuit.find(record => record.type === 'pcb_board')?.num_layers ?? 2
   const layers = { names: ['top', ...Array.from({ length: count - 2 }, (_, i) => `inner${i + 1}`), 'bottom'], count }
@@ -145,7 +145,7 @@ export function channelCopperScope({ circuit, selected, reference, rails = new S
   const proximity = { seeds, distanceMm }
   const retained = new Set(selected)
   const unassociatedCopper: string[] = []
-  const retainedCopper = { circuit, retained, unassociatedCopper }
+  const retainedCopper = { connectivity, retained, unassociatedCopper }
   for (const trace of traces) {
     if (!boxes.get(trace.pcb_trace_id)!.some(box => isNearby(box, proximity))) continue
     retain({ ids: traceMembers(trace.source_trace_id, sources), label: `trace ${trace.pcb_trace_id}` }, retainedCopper)
@@ -156,13 +156,12 @@ export function channelCopperScope({ circuit, selected, reference, rails = new S
   }
   const nearbyPads = pads.filter(pad => isNearby(padBox(pad, layers), proximity))
   for (const pad of nearbyPads) if (pad.pcb_port_id && ports.has(pad.pcb_port_id)) retain({ ids: [ports.get(pad.pcb_port_id)!], label: pad.pcb_port_id }, retainedCopper)
-  const passivePorts = circuit.filter(record => record.type === 'source_component').filter(component => ['simple_resistor', 'simple_capacitor', 'simple_inductor'].includes(component.ftype))
-    .map(component => circuit.filter(record => record.type === 'source_port').filter(port => port.source_component_id === component.source_component_id).map(port => port.source_port_id))
+  const passivePorts = passiveConnections(circuit, new Set([...rails, ...reference]))
   let changed = true
   while (changed) {
     changed = false
     for (const pins of passivePorts) {
-      if (pins.length !== 2 || pins.some(pin => rails.has(pin) || reference.has(pin)) || !pins.some(pin => retained.has(pin))) continue
+      if (!pins.some(pin => retained.has(pin))) continue
       for (const pin of pins) {
         if (retained.has(pin)) continue
         retain({ ids: [pin], label: pin }, retainedCopper)
@@ -186,7 +185,7 @@ export function channelCopperScope({ circuit, selected, reference, rails = new S
       continue
     }
     if (selected.has(port) || rails.has(port) || reference.has(port)) continue
-    const net = connectedSourceIds(circuit, port)
+    const net = sourceNetMembers(connectivity, port)
     if (keptTraces.some(trace => traceMembers(trace.source_trace_id, sources).some(id => net.has(id)))) continue
     if (net.size > 1) {
       padOnlySourcePortIds.add(port)

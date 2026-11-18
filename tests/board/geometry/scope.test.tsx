@@ -2,7 +2,7 @@ import React from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from '../../support/core-render'
-import { channelCopperScope, connectedSourceIds, type CircuitJson } from '../../../src/board'
+import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, type CircuitJson } from '../../../src/board'
 
 /** World-mm paths; inner-layer access barrels sit 2 mm beyond the selected endpoints. */
 function Wire({ name, y, layer = 'top', extent = 8 }: { name: string; y: number; layer?: 'top' | 'inner1' | 'inner2'; extent?: number }): React.JSX.Element {
@@ -34,7 +34,8 @@ test('TSX coupling scope keeps adjacent layers, full via spans and return pours 
   })
   const selected = circuit.filter(record => record.type === 'source_trace').find(trace => trace.name === 'SELECTED_route')!
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
-  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, selected.connected_source_port_ids[0]), reference: connectedSourceIds(circuit, ground.source_net_id) })
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
+  const scope = channelCopperScope({ circuit, connectivity, selected: sourceNetMembers(connectivity, selected.connected_source_port_ids[0]), reference: sourceNetMembers(connectivity, ground.source_net_id) })
   const retained = circuit.filter(record => record.type === 'pcb_trace').filter(trace => scope.pcbTraceIds.includes(trace.pcb_trace_id))
     .map(trace => circuit.filter(record => record.type === 'source_trace').find(source => source.source_trace_id === trace.source_trace_id)!.name!.replace('_route', ''))
   assert.deepEqual(retained.sort(), ['ADJACENT', 'SAME', 'SELECTED'])

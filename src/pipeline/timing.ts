@@ -1,20 +1,24 @@
 import { isQuiet, type SimulationPcbDriverReceiverChannel } from '../board'
 
-/** Finite capture after startup; quiet-only captures use 32 of the slowest UI. */
-export function recordingTime(signals: SimulationPcbDriverReceiverChannel[]): { duration: number; gate: number } {
+// Allow each switching channel 16 bits to settle after it starts.
+const startupBits = 16
+// Record another 128 bits for the eye after startup.
+const eyeBits = 128
+// Quiet-only blocks need just 32 bits to record the steady response.
+const quietBits = 32
+
+/**
+ * A unit interval is one bit time in seconds (1 / bit_rate_bps).
+ * Start the eye capture after every switching channel has had time to settle. Use the longest
+ * switching bit time for the eye, or the longest bit time overall for a quiet block.
+ */
+export function defaultDurationSeconds(signals: SimulationPcbDriverReceiverChannel[]): number {
   const switching = signals.filter(signal => !isQuiet(signal))
   if (!switching.length) {
-    const ui = Math.max(...signals.map(signal => 1 / signal.bit_rate_bps))
-    return { duration: 32 * ui, gate: 16 * ui }
+    const unitIntervalSeconds = Math.max(...signals.map(signal => 1 / signal.bit_rate_bps))
+    return quietBits * unitIntervalSeconds
   }
-  const ui = Math.max(...switching.map(signal => 1 / signal.bit_rate_bps))
-  const gate = Math.max(...switching.map(signal => signal.offset_ms / 1000 + 16 / signal.bit_rate_bps))
-  return { duration: gate + 128 * ui, gate }
-}
-/** Unicode code point order, independent of locale and UTF-16 surrogate ordering. */
-export function compareNames(a: string, b: string): number {
-  const left = Array.from(a, c => c.codePointAt(0)!)
-  const right = Array.from(b, c => c.codePointAt(0)!)
-  for (let i = 0; i < Math.min(left.length, right.length); i++) if (left[i] !== right[i]) return left[i] - right[i]
-  return left.length - right.length
+  const unitIntervalSeconds = Math.max(...switching.map(signal => 1 / signal.bit_rate_bps))
+  const startupSeconds = Math.max(...switching.map(signal => signal.offset_ms / 1000 + startupBits / signal.bit_rate_bps))
+  return startupSeconds + eyeBits * unitIntervalSeconds
 }
