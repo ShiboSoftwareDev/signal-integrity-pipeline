@@ -8,3 +8,6 @@ export type { Matrix } from './linalg'
 export { validateMatrix, type MatrixCheck } from './checks'
 export { sum, transpose, multiply, symmetrize } from './linalg'
 export { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionOptions, type CrossSectionResult, type SectionConductor, type SectionPlane, type SectionDielectric } from './cross-section'
+export { referenceSeries, routeCrossSection, closestRoutePoints, type ExtractedRoutes, type ExtractedRouteSlice, type RouteMaterials, type RouteCoefficients } from './route-lines'
+
+export { RouteFieldsSolver, type RouteFieldsInput } from './route-fields-solver'

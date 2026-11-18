@@ -5,16 +5,17 @@ Declare transient channels in Circuit JSON. Signal preparation validates endpoin
 RoutedAdmissionSolver lowers each declared block into immutable inputs for route sections and buffer binding.
 RouteSectionsSolver divides scoped copper into straight slices and resolves physical endpoint contacts.
 The standalone 2D cross-section solve returns per-unit-length C/C0/L and frequency-dependent R/G.
+RouteFieldsSolver screens nearby conductor pairs and extracts coupled coefficients for each unique section.
 
 ```mermaid
 flowchart LR
-  input["Cross-section geometry"] --> result["Per-unit-length field coefficients"]
+  input["RouteSectionsSolver"] --> result["RouteFieldsSolver"]
 ```
 
 ```mermaid
 stateDiagram-v2
   [*] --> Ready
-  Ready --> Complete: Per-unit-length field coefficients
+  Ready --> Complete: RouteFieldsSolver
   Ready --> Failed: invalid input
   Complete --> [*]
   Failed --> [*]
