@@ -2,15 +2,9 @@
 import { z } from 'zod'
 import * as base from 'circuit-json'
 import type { CircuitJson } from 'circuit-json'
+import { isQuiet, signalEndpointPortIds } from './signals'
 import { fail } from './diagnostics'
-
-export type {
-  CircuitJson,
-  SimulationExperiment,
-  SimulationIbisModel,
-  SimulationIbisPinState,
-  SimulationDigitalStimulus,
-} from 'circuit-json'
+export type { CircuitJson, SimulationExperiment, SimulationIbisModel } from 'circuit-json'
 
 /** Saved boards retain a few older physical serialization forms. Validate their
  * equivalent official schemas without changing the original geometry values. */
@@ -60,14 +54,6 @@ export function recordSchema(record: { type: string; ftype?: string }): z.ZodTyp
   if (record.type === 'source_component') schemaName = `source_${record.ftype}`
   return physicalCompatibility[record.type] ?? Reflect.get(base, schemaName)
 }
-/** Parses one Circuit JSON record with its registered schema, throwing a plain Error for missing or unknown types. */
-export function parseRecord(record: unknown): CircuitJson[number] {
-  if (!record || typeof record !== 'object' || !('type' in record) || typeof record.type !== 'string') throw new Error('Circuit record requires a type')
-  const schema = recordSchema(record as { type: string })
-  if (!schema) throw new Error(`Unknown Circuit JSON record: ${record.type}`)
-  return schema.parse(record)
-}
-
 /** Select the registered record schema directly, avoiding a union diagnostic
  * containing hundreds of unrelated alternatives. Validation never edits input. */
 export function validateCircuitRecords(records: unknown): void {
@@ -83,5 +69,18 @@ export function validateCircuitRecords(records: unknown): void {
       const path=issue.path?.join('.')
       fail('circuit_schema',`${type} ${id}: ${path?path+': ':''}${issue.message}`)
     }
+  }
+  const circuit = records as CircuitJson
+  const signals = new Map(circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel').map(signal => [signal.simulation_pcb_driver_receiver_channel_id, signal]))
+  for (const waveform of circuit.filter(record => record.type === 'simulation_signal_waveform_result')) {
+    const signal = signals.get(waveform.simulation_pcb_driver_receiver_channel_id)
+    if (signal && isQuiet(signal) !== (waveform.idle_voltage_v !== undefined)) fail('circuit_schema', `${signal.name}: idle_voltage_v is required on quiet waveforms and absent on switching waveforms`)
+  }
+  for (const rlgc of circuit.filter(record => record.type === 'simulation_pcb_transient_channel_result')) for (const signalId of new Set(rlgc.conductors.map(conductor => conductor.simulation_pcb_driver_receiver_channel_id))) {
+    const signal = signals.get(signalId)
+    if (!signal) continue
+    const ports = rlgc.conductors.filter(conductor => conductor.simulation_pcb_driver_receiver_channel_id === signalId).map(conductor => conductor.source_port_id)
+    const expected = signalEndpointPortIds(signal.driver)
+    if (ports.length !== expected.length || expected.some(port => !ports.includes(port))) fail('circuit_schema', `${signal.name}: RLGC conductors must identify every driver port exactly once`)
   }
 }
