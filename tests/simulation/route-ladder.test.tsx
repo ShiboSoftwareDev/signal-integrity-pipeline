@@ -59,9 +59,20 @@ const stripline: CrossSection = { conductors: [{ id: 's', xMm: 0, zMm: .4825, wi
 /** Inhomogeneous microstrip pair (h = 0.5 mm, er = 4 below, air above): distinct even and odd velocities. */
 const microstripPair: CrossSection = { conductors: [-.375, .375].map((x, i) => ({ id: `m${i}`, xMm: x, zMm: .5, widthMm: .5, thicknessMm: .035 })), planes: [{ zMm: 0 }], dielectrics: [{ zMm: 0, thicknessMm: .5, er: 4, lossTangent: 0 }] }
 
-/** Sum of the values of every emitted element whose line matches `pattern`. */
-function total(lines: string[], pattern: RegExp): number {
-  return lines.filter(line => pattern.test(line)).reduce((sum, line) => sum + Number(line.split(' ')[3]), 0)
+/** Match an emitted element name made of the prefix and a decimal index. */
+function hasNumberedElement(line: string, prefix: string): boolean {
+  if (!line.startsWith(prefix)) return false
+  const end = line.indexOf(' ', prefix.length)
+  if (end <= prefix.length) return false
+  for (let index = prefix.length; index < end; index++) {
+    if (line[index] < '0' || line[index] > '9') return false
+  }
+  return true
+}
+
+/** Sum the values of the numbered elements with the requested prefix. */
+function total(lines: string[], prefix: string): number {
+  return lines.filter(line => hasNumberedElement(line, prefix)).reduce((sum, line) => sum + Number(line.split(' ')[3]), 0)
 }
 
 test('golden stage 5: ladder elements integrate to L l, C l, R l and K = L12/sqrt(L11 L22)', () => {
@@ -77,11 +88,11 @@ test('golden stage 5: ladder elements integrate to L l, C l, R l and K = L12/sqr
     const resistance = Array.from({ length: size }, (_, i) => line.dcResistance[i][i] * metres).reduce((a, b) => a + b, 0)
     const ground = line.C.flat().reduce((a, b) => a + b, 0) * metres
     const pair = size > 1 ? Math.abs(line.C[0][1]) * metres : 0
-    const shunts = ladder.lines.filter(entry => /^CARCCS\d+ /.test(entry)).map(entry => entry.split(' '))
+    const shunts = ladder.lines.filter(entry => hasNumberedElement(entry, 'CARCCS')).map(entry => entry.split(' '))
     /** Relative agreement within the 1e-9 print-precision tolerance. */
     const near = (actual: number, expected: number): boolean => Math.abs(actual - expected) <= 1e-9 * Math.abs(expected)
-    assert.ok(near(total(ladder.lines, /^LARCL\d+ /), inductance), `${label}: series L`)
-    assert.ok(near(total(ladder.lines, /^RARCD\d+ /), resistance), `${label}: DC R`)
+    assert.ok(near(total(ladder.lines, 'LARCL'), inductance), `${label}: series L`)
+    assert.ok(near(total(ladder.lines, 'RARCD'), resistance), `${label}: DC R`)
     assert.ok(near(shunts.filter(entry => entry[2] === '0').reduce((sum, entry) => sum + Number(entry[3]), 0), ground), `${label}: C to ground`)
     if (size > 1) {
       assert.ok(near(shunts.filter(entry => entry[2] !== '0').reduce((sum, entry) => sum + Number(entry[3]), 0), pair), `${label}: pair C`)
