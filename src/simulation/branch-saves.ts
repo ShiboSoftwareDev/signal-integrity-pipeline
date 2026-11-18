@@ -1,17 +1,19 @@
+import { spiceSubcircuitName, spiceWords } from './spice-header'
+
 type SubcircuitName = string
 
 /** Expand voltage-source branch names through a compiled IBIS library without storing all ladder states. */
 export function branchSaves({ source, instance, wrapper }: { source: string; instance: string; wrapper: string }): string[] {
   const definitions = new Map<SubcircuitName, string[]>()
   let current: string[] = []
-  for (const line of source.split(/\r?\n/)) {
-    const header = /^\.subckt\s+(\S+)/i.exec(line)
-    if (header) {
+  for (const line of source.split('\n')) {
+    const name = spiceSubcircuitName(line)
+    if (name !== undefined) {
       current = []
-      definitions.set(header[1].toLowerCase(), current)
+      definitions.set(name.toLowerCase(), current)
       continue
     }
-    if (!/^\.ends/i.test(line)) current.push(line)
+    if (line.slice(0, 5).toLowerCase() !== '.ends') current.push(line)
   }
   const saved: string[] = []
   collectBranchSaves({ name: wrapper, path: instance.toLowerCase(), depth: 0 }, { definitions, saved })
@@ -25,7 +27,7 @@ function collectBranchSaves({ name, path, depth }: { name: SubcircuitName; path:
 }): void {
   if (depth > 12) throw new Error('Recursive/deep SPICE library cannot be saved safely')
   for (const line of context.definitions.get(name.toLowerCase()) ?? []) {
-    const tokens = line.trim().split(/\s+/)
+    const tokens = spiceWords(line)
     const device = tokens[0].toLowerCase()
     if (device.startsWith('v')) context.saved.push(`i(v.${path}.${device})`)
     if (device.startsWith('x')) collectBranchSaves({ name: tokens.at(-1)!, path: `${path}.${device}`, depth: depth + 1 }, context)

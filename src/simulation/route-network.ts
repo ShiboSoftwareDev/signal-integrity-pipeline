@@ -3,6 +3,7 @@ import { connectedSourceIds, routePosition, routeContactFrame, type RouteWire, t
 import { rootScope, snapshot, sha256, type Produced } from '../kernel'
 import { namespaceSpice } from './netlist'
 import { branchSaves } from './branch-saves'
+import { spiceSubcircuitHeader, spiceWords } from './spice-header'
 import { routedControl } from './routed-control'
 import { routedRequest } from './route-transient'
 import { routeLadderSteps, type RouteLadder } from './route-ladder'
@@ -70,8 +71,8 @@ export class RouteNetworkSolver extends BaseSolver {
     const saved: string[] = []
     for (const [i, model] of models.entries()) {
       const namespaced = namespaceSpice(model.source, `I${i}`)
-      const header = model.source.match(/^\.subckt\s+\S+\s+(.+)$/mi)!
-      const nodes = header[1].trim().split(/\s+/).map(terminal => routedNode(bindings.nodeMap, model.spicePinMapping[terminal]))
+      const header = spiceSubcircuitHeader(model.source)!
+      const nodes = spiceWords(header[1]).map(terminal => routedNode(bindings.nodeMap, model.spicePinMapping[terminal]))
       saved.push(...branchSaves({ source: namespaced.source, instance: `XIBIS${i}`, wrapper: namespaced.wrapper }))
       lines.push(namespaced.source, `XIBIS${i} ${nodes.join(' ')} ${namespaced.wrapper}`)
     }

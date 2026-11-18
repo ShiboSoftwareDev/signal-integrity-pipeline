@@ -18,8 +18,8 @@ test('actual routed TSX exceeds the old 1024-cell cap with locally supported cou
   assert.ok(couplings.length > 0)
   assert.ok(couplings.length < result.cells * 30, 'fixed-width local slices scale with cell count')
   assert.ok(result.lines.some(line => line.startsWith('GARCS')), 'actual TSX copper exercises coupled Foster resistance')
-  assert.equal(result.lines.filter(line => /^[VH]ARCS/.test(line)).length, 0, 'tiny Foster voltages must not be differences along sensor/CCVS chains')
-  assert.ok(result.lines.filter(line => /^RARCS/.test(line)).every(line => line.split(' ')[2] !== '0' || line.endsWith(' 1')), 'coupled resistance equations have unit diagonal')
+  assert.equal(result.lines.filter(line => line.startsWith('VARCS') || line.startsWith('HARCS')).length, 0, 'tiny Foster voltages must not be differences along sensor/CCVS chains')
+  assert.ok(result.lines.filter(line => line.startsWith('RARCS')).every(line => line.split(' ')[2] !== '0' || line.endsWith(' 1')), 'coupled resistance equations have unit diagonal')
 })
 
 // ---- Golden known-answer checks for stages 5–6 (docs/golden-checks.md). The ladder is the lowest layer that
