@@ -1,4 +1,4 @@
-import { connectedSourceIds, resolveRouteVias, routeReferences, routeContactFrame, type CircuitJson, type CopperScope, type SectionGeometry, type RouteWire, type RouteXY, type RouteReference } from '../board'
+import { getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, resolveRouteVias, routeReferences, routeContactFrame, type CircuitJson, type CopperScope, type SectionGeometry, type RouteWire, type RouteXY, type RouteReference } from '../board'
 import { validateMatrix, type Matrix } from '../extraction'
 
 export interface RouteTransition { kind: string; id: string; inductanceH?: number; capacitanceF?: number; [key: string]: unknown }
@@ -82,7 +82,8 @@ export function routeTransitions({ circuit, scope, geometry, endpoint, groundPor
 }): RouteTransitions {
   const output: RouteTransitions = { lines: [], records: [], warnings: [] }
   const layers = geometry.stack.copperLayers
-  const ground = connectedSourceIds(circuit, groundPort)
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
+  const ground = sourceNetMembers(connectivity, groundPort)
   const sources = circuit.filter(record => record.type === 'source_trace')
   const groundVias = circuit.filter(record => record.type === 'pcb_via').filter(via => via.source_net_id && ground.has(via.source_net_id) || sources.some(source => source.source_trace_id === via.source_trace_id && [...source.connected_source_port_ids, ...source.connected_source_net_ids ?? []].some(id => ground.has(id))))
   for (const trace of circuit.filter(record => record.type === 'pcb_trace').filter(trace => scope.pcbTraceIds.includes(trace.pcb_trace_id) && !scope.nonReferenceRailTraceIds.includes(trace.pcb_trace_id))) {

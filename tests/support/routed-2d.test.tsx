@@ -2,7 +2,7 @@ import React from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from './core-render'
-import { channelCopperScope, connectedSourceIds, segmentRoutes, routeReferences, routeContactFrame, type CircuitJson } from '../../src/board'
+import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, segmentRoutes, routeReferences, routeContactFrame, type CircuitJson } from '../../src/board'
 import { RouteFieldsSolver, referenceSeries } from '../../src/extraction'
 import { routeLadder, routeOblique, routeTransitions } from '../../src/simulation'
 
@@ -44,8 +44,9 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   const component = circuit.filter(record => record.type === 'source_component').find(record => record.name === 'A')!
   const port = circuit.filter(record => record.type === 'source_port').find(record => record.source_component_id === component.source_component_id)!
   const groundNet = circuit.filter(record => record.type === 'source_net').find(record => record.name === 'GND')!
-  const ground = connectedSourceIds(circuit, groundNet.source_net_id)
-  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, port.source_port_id), reference: ground })
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
+  const ground = sourceNetMembers(connectivity, groundNet.source_net_id)
+  const scope = channelCopperScope({ circuit, connectivity, selected: sourceNetMembers(connectivity, port.source_port_id), reference: ground })
   const geometry = segmentRoutes(circuit, scope)
   assert.equal(scope.pcbTraceIds.length, 3)
   assert.ok(geometry.slices.some(slice => slice.wires.length === 2))
@@ -70,14 +71,16 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   assert.ok(coarse.maximumDelaySeconds <= 115e-12)
   assert.throws(() => routeLadder({ extracted, endpoint: () => '0', riseSeconds: 230e-12, refinement: 1, cellsPerRise: 0 }), /Cells per rise/)
   const mergedCircuit = await renderCoreSignals(<Board overlap />)
-  const merged = segmentRoutes(mergedCircuit, channelCopperScope({ circuit: mergedCircuit, selected: connectedSourceIds(mergedCircuit, port.source_port_id), reference: ground }))
+  const mergedConnectivity = getSourcePortConnectivityMapFromCircuitJson(mergedCircuit)
+  const merged = segmentRoutes(mergedCircuit, channelCopperScope({ circuit: mergedCircuit, connectivity: mergedConnectivity, selected: sourceNetMembers(mergedConnectivity, port.source_port_id), reference: ground }))
   assert.ok(merged.wires.some(wire => wire.joins?.length), 'same-net overlapping bend bodies become equipotential breakout patches')
   assert.doesNotThrow(() => ((solver: RouteFieldsSolver) => {
     solver.solve()
     return solver.getOutput().value
   }) (new RouteFieldsSolver({ geometry: merged, materials: { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 }, artifactPrefix: 'test' })))
   const obliqueCircuit = await renderCoreSignals(<Board oblique />)
-  const obliqueScope = channelCopperScope({ circuit: obliqueCircuit, selected: connectedSourceIds(obliqueCircuit, port.source_port_id), reference: ground })
+  const obliqueConnectivity = getSourcePortConnectivityMapFromCircuitJson(obliqueCircuit)
+  const obliqueScope = channelCopperScope({ circuit: obliqueCircuit, connectivity: obliqueConnectivity, selected: sourceNetMembers(obliqueConnectivity, port.source_port_id), reference: ground })
   const obliqueGeometry = segmentRoutes(obliqueCircuit, obliqueScope)
   const materials = { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 }
   const obliqueFields = ((solver: RouteFieldsSolver) => {
@@ -94,7 +97,8 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
     return error.circuitJson
   })
   const viaSource = viaCircuit.find(record => record.type === 'source_trace')! as Extract<typeof viaCircuit[number], { type: 'source_trace' }>
-  const viaScope = channelCopperScope({ circuit: viaCircuit, selected: connectedSourceIds(viaCircuit, viaSource.connected_source_port_ids[0]), reference: ground })
+  const viaConnectivity = getSourcePortConnectivityMapFromCircuitJson(viaCircuit)
+  const viaScope = channelCopperScope({ circuit: viaCircuit, connectivity: viaConnectivity, selected: sourceNetMembers(viaConnectivity, viaSource.connected_source_port_ids[0]), reference: ground })
   const viaGeometry = segmentRoutes(viaCircuit, viaScope)
   assert.ok(viaGeometry.wires.every(wire => wire.layer === 'inner2'))
   assert.ok(routeContactFrame({ geometry: viaGeometry, scope: viaScope, layer: 'top', point: [-3, 0] }))

@@ -1,5 +1,5 @@
 import { BaseSolver } from '@tscircuit/solver-utils'
-import { connectedSourceIds, routePosition, routeContactFrame, type RouteWire, type RouteXY } from '../board'
+import { getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, routePosition, routeContactFrame, type RouteWire, type RouteXY } from '../board'
 import { rootScope, snapshot, sha256, type Produced } from '../kernel'
 import { namespaceSpice } from './netlist'
 import { branchSaves } from './branch-saves'
@@ -85,7 +85,8 @@ export class RouteNetworkSolver extends BaseSolver {
     // Only save receiver nodes and behavioural-source branch dependencies; the engine exposes the resulting vectors.
     const save = [...new Set(plan.probes.flatMap(probe => [probe.signalNode, probe.referenceNode]).filter(node => node !== '0'))].map(node => `v(${node})`).concat(saved).join(' ')
     lines.push(...routedControl({ saved: save, step: options.stepSeconds, duration: options.durationSeconds }))
-    const ground = connectedSourceIds(bindings.circuitJson, bindings.groundSourcePortId)
+    const connectivity = getSourcePortConnectivityMapFromCircuitJson(bindings.circuitJson)
+    const ground = sourceNetMembers(connectivity, bindings.groundSourcePortId)
     const powerReferences = geometry.slices.flatMap(slice => slice.references.filter(plane => !ground.has(plane.net)).map(plane => ({ plane, traces: slice.wires.map(wire => wire.trace), start: slice.start, end: slice.end })))
     const mapped = new Set(models.flatMap(model => Object.values(model.spicePinMapping)))
     const external = bindings.circuitJson.filter(record => record.type === 'pcb_port').filter(port => !mapped.has(port.source_port_id) && port.layers.some(layer => routeContactFrame({ geometry, scope, layer, point: [port.x, port.y] })))
