@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from '../support/core-render'
 import { channelCopperScope, connectedSourceIds, segmentRoutes, type CircuitJson } from '../../src/board'
+import { RouteFieldsSolver } from '../../src/extraction'
 
 /** Two same-net strips meet exactly at their edges, as on the board's DDR power rail. */
 function TouchingRail({ 'same-net': sameNet = true }: { 'same-net'?: boolean }): React.JSX.Element {
@@ -22,12 +23,19 @@ test('TSX touching same-net rail strips form one physical conductor before extra
   const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, rail.source_net_id), reference: connectedSourceIds(circuit, ground.source_net_id) })
   const geometry = segmentRoutes(circuit, scope)
   assert.ok(geometry.wires.some(wire => Math.abs(wire.width - .6) < 1e-7 && wire.joins?.length))
+  assert.doesNotThrow(() => ((solver: RouteFieldsSolver) => {
+    solver.solve()
+    return solver.getOutput().value
+  }) (new RouteFieldsSolver({ geometry: geometry, materials: { maskMm: 0, maskEr: 1, maskLoss: 0, substrateLoss: 0 }, artifactPrefix: 'test' })))
   const separate = await renderCoreSignals(<TouchingRail same-net={false} />).catch((error: Error & { circuitJson: CircuitJson }) => {
     const errors = error.circuitJson.filter(record => record.type.endsWith('_error'))
     assert.ok(errors.some(record => record.type === 'pcb_trace_error'))
     assert.ok(errors.every(record => record.type === 'pcb_trace_error' || record.type === 'pcb_pad_trace_clearance_error'))
     return error.circuitJson
   })
-
-  assert.ok(segmentRoutes(separate, scope).wires.every(wire => !wire.joins?.length))
+  const touching = segmentRoutes(separate, scope)
+  assert.throws(() => ((solver: RouteFieldsSolver) => {
+    solver.solve()
+    return solver.getOutput().value
+  }) (new RouteFieldsSolver({ geometry: touching, materials: { maskMm: 0, maskEr: 1, maskLoss: 0, substrateLoss: 0 }, artifactPrefix: 'test' })), /Signal rectangles overlap or touch/, 'touching different nets remain an explicit failure')
 })
