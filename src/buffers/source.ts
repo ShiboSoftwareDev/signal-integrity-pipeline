@@ -5,9 +5,22 @@ import type { IbisSources, LoadedModelSource, ModelSourceRequest } from './types
 
 /** Portable relative paths used by the explicit Node adapter as well as file maps. */
 export function relativeFile(path: string): string {
-  if (!path || /[\\:\0]/.test(path) || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..'))
+  if (!path || path.includes('\\') || path.includes(':') || path.includes('\0') || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..'))
     fail('file_path', `Expected a safe project-relative file path: ${path}`)
   return path
+}
+
+/** Detects common HTML document openings in place of IBIS text. */
+function containsHtmlOpening(text: string): boolean {
+  let opening = text.trimStart()
+  if (opening.slice(0, '<!doctype'.length).toLowerCase() === '<!doctype') {
+    const rest = opening.slice('<!doctype'.length)
+    if (rest === rest.trimStart()) return false
+    opening = '<' + rest.trimStart()
+  }
+  if (opening.slice(0, 5).toLowerCase() !== '<html') return false
+  const next = opening[5] ?? ''
+  return next === '' || !'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_'.includes(next)
 }
 
 /**
@@ -24,7 +37,7 @@ export function loadModelSource(model: ModelSourceRequest, sources: IbisSources)
   if (bytes.length > 64 * 1024 * 1024) fail('ibis_asset', 'IBIS asset exceeds 64 MiB')
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) fail('ibis_asset', 'IBIS asset must be a plain .ibs file; extract ZIP archives explicitly')
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
-  if (/^\s*(?:<!doctype\s+html|<html)\b/i.test(text)) fail('ibis_asset', 'IBIS asset contains HTML instead of model data')
+  if (containsHtmlOpening(text)) fail('ibis_asset', 'IBIS asset contains HTML instead of model data')
   const id = model.pipelineId
   const sourceSha256 = sha256(bytes)
   const ibsFile = `inputs/ibis/${id}.ibs`

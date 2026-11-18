@@ -42,7 +42,7 @@ function sources(dir: string): string[] {
   return readdirSync(dir).flatMap(name => {
     const path = join(dir, name)
     if (statSync(path).isDirectory()) return name === 'legacy' && dir === src ? [] : sources(path)
-    return /\.(?:[cm]?ts|[cm]?js)$/.test(name) && !name.endsWith('.d.ts') ? [path] : []
+    return ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].some(ext => name.endsWith(ext)) && !name.endsWith('.d.ts') ? [path] : []
   })
 }
 

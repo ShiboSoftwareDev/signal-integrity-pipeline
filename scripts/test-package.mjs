@@ -18,7 +18,7 @@ const run=async(executable,args,cwd)=>{
 try {
   const packed=JSON.parse((await run('npm',['pack','--json','--pack-destination',temporary],root)).stdout)[0]
   assert.ok(packed.files.every(file=>file.path.startsWith('dist/')||['README.md','LICENSE','package.json'].includes(file.path)))
-  assert.ok(!packed.files.some(file=>/dist\/(?:setup|runtime|cli|pipeline)\./.test(file.path)))
+  assert.ok(!packed.files.some(file=>['setup', 'runtime', 'cli', 'pipeline'].some(name => file.path.includes(`dist/${name}.`))))
   const consumer=join(temporary,'consumer')
   await mkdir(consumer)
   await writeFile(join(consumer,'package.json'),JSON.stringify({type:'module',private:true}))

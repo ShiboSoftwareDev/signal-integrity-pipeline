@@ -19,10 +19,125 @@ const value = (input: unknown, label: string, positive: boolean = false): string
  * Also returns the prefixed name of the top-level wrapper to instantiate.
  */
 export function namespaceSpice(source: string, prefix: string): { source: string; wrapper: string } {
-  const names = [...source.matchAll(/^\.subckt\s+(\S+)/gmi)].map(match => match[1])
+  const names: string[] = []
+  for (let offset = source.indexOf('.'); offset !== -1; offset = source.indexOf('.', offset + 1)) {
+    if (offset > 0 && !isSpiceLineBreak(source[offset - 1])) continue
+    const keywordEnd = offset + '.subckt'.length
+    if (source.slice(offset, keywordEnd).toLowerCase() !== '.subckt') continue
+    const start = skipSpiceWhitespace(source, keywordEnd)
+    const end = spiceTokenEnd(source, start)
+    if (start === keywordEnd || start === end) continue
+    names.push(source.slice(start, end))
+    offset = end - 1
+  }
   if (!names.length) fail('ibis_contract', 'Converter did not emit a SPICE component wrapper')
+
   const renamed = new Map(names.map(name => [name.toLowerCase(), `${prefix}_${name}`]))
-  return { source: source.replace(/\S+/g, token => renamed.get(token.toLowerCase()) ?? token), wrapper: `${prefix}_${names[0]}` }
+  let output = ''
+  let copied = 0
+  while (copied < source.length) {
+    const start = skipSpiceWhitespace(source, copied)
+    const end = spiceTokenEnd(source, start)
+    const token = source.slice(start, end)
+    output += source.slice(copied, start) + (renamed.get(token.toLowerCase()) ?? token)
+    copied = end
+  }
+  return { source: output, wrapper: `${prefix}_${names[0]}` }
+}
+
+/** Index after the whitespace that starts at the given offset. */
+function skipSpiceWhitespace(source: string, start: number): number {
+  while (source[start]?.trim() === '') start++
+  return start
+}
+
+/** Index after the non-whitespace token that starts at the given offset. */
+function spiceTokenEnd(source: string, start: number): number {
+  while (start < source.length && source[start].trim() !== '') start++
+  return start
+}
+
+/** The line breaks recognized when matching SPICE statements at the start of a line. */
+function isSpiceLineBreak(char: string): boolean {
+  return char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029'
+}
+
+/** Split the trimmed terminal list, preserving an empty terminal for an empty list. */
+function splitSpicePins(source: string): string[] {
+  if (source.length === 0) return ['']
+  const pins: string[] = []
+  for (let start = 0; start < source.length;) {
+    const end = spiceTokenEnd(source, start)
+    pins.push(source.slice(start, end))
+    start = skipSpiceWhitespace(source, end)
+  }
+  return pins
+}
+
+/** Read terminals from the first placed subcircuit header with a name and terminal field. */
+function placedSubcircuitPins(source: string): string[] | undefined {
+  for (let start = source.indexOf('.'); start !== -1; start = source.indexOf('.', start + 1)) {
+    if (start > 0 && !isSpiceLineBreak(source[start - 1])) continue
+    let keywordEnd = start + 1
+    while (isSpiceWordCharacter(source[keywordEnd])) keywordEnd++
+    if (source.slice(start + 1, keywordEnd).toLowerCase() !== 'subckt') continue
+
+    const nameStart = skipSpiceWhitespace(source, keywordEnd)
+    if (nameStart === keywordEnd) continue
+    const nameEnd = spiceTokenEnd(source, nameStart)
+    if (nameEnd === source.length) continue
+
+    const pinsStart = skipSpiceWhitespace(source, nameEnd)
+    if (pinsStart === source.length) {
+      // A spaces-only terminal field can follow the required separator.
+      for (let offset = nameEnd + 1; offset < source.length; offset++) {
+        if (source[offset] !== '\r' && source[offset] !== '\n') return ['']
+      }
+      continue
+    }
+    let pinsEnd = pinsStart
+    while (pinsEnd < source.length && source[pinsEnd] !== '\r' && source[pinsEnd] !== '\n') pinsEnd++
+    return splitSpicePins(source.slice(pinsStart, pinsEnd).trim())
+  }
+  return undefined
+}
+
+const unsupportedSpiceDirectives = ['include', 'lib', 'control', 'end', 'tran', 'ac', 'dc']
+
+/** Check the ASCII letters, digits and underscore used in a directive name. */
+function isSpiceWordCharacter(char: string | undefined): boolean {
+  if (char === undefined) return false
+  return (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '_'
+}
+
+/** Find directives and device types excluded from placed passive subcircuits. */
+function hasUnsupportedPlacedSpice(source: string): boolean {
+  for (let start = 0; start < source.length; start++) {
+    if (start > 0 && !isSpiceLineBreak(source[start - 1])) continue
+    start = skipSpiceWhitespace(source, start)
+    const first = source[start]
+    if (first && 'BESGWFTbesgwft'.includes(first)) return true
+    if (first !== '.') continue
+
+    let end = start + 1
+    while (isSpiceWordCharacter(source[end])) end++
+    const directive = source.slice(start + 1, end).toLowerCase()
+    if (unsupportedSpiceDirectives.includes(directive)) return true
+  }
+  return false
+}
+
+/** Read the terminals of a resistor or inductor line that also has a separator after the second terminal. */
+function dcSpiceTerminals(line: string): [string, string] | undefined {
+  const deviceStart = skipSpiceWhitespace(line, 0)
+  const device = line[deviceStart]
+  if (!device || !'RLrl'.includes(device)) return undefined
+  const first = skipSpiceWhitespace(line, spiceTokenEnd(line, deviceStart))
+  const firstEnd = spiceTokenEnd(line, first)
+  const second = skipSpiceWhitespace(line, firstEnd)
+  const secondEnd = spiceTokenEnd(line, second)
+  if (secondEnd === line.length) return undefined
+  return [line.slice(first, firstEnd), line.slice(second, secondEnd)]
 }
 
 /**
@@ -85,19 +200,19 @@ export function electricalSources(circuit: CircuitJson, modeling: SimulationMode
     if (placed.length) {
       if (placed.length !== 1) fail('passive_capability', `${component.name}: placed SPICE model is ambiguous`)
       const model = placed[0]
-      const header = /^\.subckt\s+(\S+)\s+([^\r\n]+)$/mi.exec(model.subcircuit_source)
-      const unsupported = /^\s*(?:\.(?:include|lib|control|end|tran|ac|dc)\b|[BESGWFT])/mi.test(model.subcircuit_source)
-      if (!header || unsupported) fail('passive_capability', `${component.name}: placed SPICE model is unsupported; it cannot be discarded.`)
-      const pins = header[2].trim().split(/\s+/)
+      const pins = placedSubcircuitPins(model.subcircuit_source)
+      if (!pins || hasUnsupportedPlacedSpice(model.subcircuit_source)) fail('passive_capability', `${component.name}: placed SPICE model is unsupported; it cannot be discarded.`)
       if (pins.some(pin => !model.spice_pin_to_source_port_map[pin])) fail('passive_capability', `${component.name}: placed SPICE model has unmapped terminals`)
       const namespaced = namespaceSpice(model.subcircuit_source, `PLACED${i}`)
       const nodesForPins = pins.map(pin => nodes.node(model.spice_pin_to_source_port_map[pin]))
       nodesForPins.forEach(node => activeNodes.add(node))
       passives.push(namespaced.source, `XPHYSICAL${i} ${nodesForPins.join(' ')} ${namespaced.wrapper}`)
       // Supported passive resistor/inductor edges determine the DC rail connectivity.
-      for (const line of model.subcircuit_source.split(/\r?\n/)) {
-        const match = /^\s*[RL]\S*\s+(\S+)\s+(\S+)\s+/i.exec(line)
-        if (match && pins.includes(match[1]) && pins.includes(match[2])) dcConnections.push([nodesForPins[pins.indexOf(match[1])], nodesForPins[pins.indexOf(match[2])]])
+      for (const line of model.subcircuit_source.replaceAll('\r\n', '\n').split('\n')) {
+        const terminals = dcSpiceTerminals(line)
+        if (!terminals) continue
+        const [a, b] = terminals.map(pin => pins.indexOf(pin))
+        if (a >= 0 && b >= 0) dcConnections.push([nodesForPins[a], nodesForPins[b]])
       }
       continue
     }

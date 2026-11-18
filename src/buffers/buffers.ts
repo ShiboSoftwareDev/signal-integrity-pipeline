@@ -25,7 +25,7 @@ export function admitBuffers(models: readonly ModelSourceRequest[], ibisSources:
     let expected: string | undefined
     if (hashes !== undefined) {
       const pinned = hashes[path]
-      if (typeof pinned !== 'string' || !/^[a-f0-9]{64}$/i.test(pinned)) fail('vendor_hash', `${path}: modeling.ibisModelAssetSha256 requires an expected 64-digit SHA-256 hash for each used IBIS asset`)
+      if (typeof pinned !== 'string' || pinned.length !== 64 || Array.from(pinned).some(char => !'0123456789abcdefABCDEF'.includes(char))) fail('vendor_hash', `${path}: modeling.ibisModelAssetSha256 requires an expected 64-digit SHA-256 hash for each used IBIS asset`)
       expected = pinned
     }
     const source = loadModelSource(model, ibisSources)
