@@ -1,5 +1,7 @@
 import React from 'react'
 import type { CircuitJson } from '../../src/board'
+import { RoutedAdmissionSolver } from '../../src/pipeline'
+import type { RouteBindingsInput } from '../../src/simulation'
 import type { IbisSources } from '../../src/buffers'
 import { prepareBlockById, signalBlocks, type PreparedBlock } from '../../src/pipeline/signals'
 import { renderCoreSignals } from './core-render'
@@ -25,4 +27,14 @@ export function prepareBlocks({ circuit, sources, distanceMm }: {
   return signalBlocks(circuit).map(block => prepareBlockById({
     circuit, sources, blockId: block.simulation_pcb_transient_channel_simulation_id, distanceMm,
   }))
+}
+
+/** The first admitted block's bindings, checked by the standalone admission solver. */
+export function admittedBindings(circuitJson: CircuitJson, ibisSources: IbisSources): Omit<RouteBindingsInput, 'scope'> {
+  const textSources = Object.fromEntries(Object.entries(ibisSources).map(([name, bytes]) => [
+    name, typeof bytes === 'string' ? bytes : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes),
+  ]))
+  const admission = new RoutedAdmissionSolver({ circuitJson, ibisSources: textSources })
+  admission.solve()
+  return admission.getOutput().value[0].bindings
 }
