@@ -2,7 +2,7 @@ import React from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from '../support/core-render'
-import { channelCopperScope, connectedSourceIds, segmentRoutes } from '../../src/board'
+import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, segmentRoutes } from '../../src/board'
 import { routeCrossSection, solveCrossSection } from '../../src/extraction'
 import { sectionFixture } from './cross-section-fixtures'
 
@@ -40,7 +40,8 @@ test('cross-section mesh preserves references, rejects invalid geometry and coal
   const circuit = await renderCoreSignals(<AlignedEdges />)
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
   const selected = new Set(circuit.filter(record => record.type === 'source_trace').flatMap(trace => trace.connected_source_port_ids))
-  const geometry = segmentRoutes(circuit, channelCopperScope({ circuit, selected, reference: connectedSourceIds(circuit, ground.source_net_id) }))
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
+  const geometry = segmentRoutes(circuit, channelCopperScope({ circuit, connectivity, selected, reference: sourceNetMembers(connectivity, ground.source_net_id) }))
   const slice = geometry.slices.find(slice => slice.wires.length === 2 && slice.wires.every(wire => wire.u[1] === 1))!
   assert.ok(slice)
   const section = routeCrossSection({ geometry, slice, materials: { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 } })
