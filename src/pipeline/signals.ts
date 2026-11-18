@@ -1,6 +1,6 @@
 import { isQuiet, channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, stackupFromCircuitJson, type CircuitJson, type CopperScope, type SignalEndpoint, type SimulationPcbDriverReceiverChannel, type SimulationPcbTransientChannelSimulation } from '../board'
-import { inspectPins, edgeSeconds, referenceVoltages, pinCapabilities, type InspectedPin, type IbisSources } from '../buffers'
-import { safeId } from '../kernel'
+import { inspectPins, edgeSeconds, referenceVoltages, coupledPackage, packageCapacitanceWarnings, pinCapabilities, type InspectedPin, type IbisSources } from '../buffers'
+import { safeId, sha256 } from '../kernel'
 import type { RunControls } from '../simulation'
 import type { NumericalSettings } from './modeling'
 import { signalTopology, validateSignalGraph, type ConnectedSourceId } from './topology'
@@ -167,6 +167,14 @@ function prepareBlock({ input, block, sources, warnings, distanceMm }: {
     }
   }
   const pins = inspectPins(circuit, sources)
+  for (const model of circuit.filter(r => r.type === 'simulation_ibis_model')) {
+    const inspected = [...pins.values()].filter(pin => pin.model === model)
+    if (!inspected.length || inspected[0].component.coupledPackage === undefined) continue
+    const references = new Set(inspected.flatMap(pin => [pin.power, pin.ground, ...Object.values(model.ibis_pin_name_to_reference_source_port_ids?.[pin.pin] ?? {})]))
+    const selected = Object.entries(model.ibis_pin_name_to_source_port_id).filter(([pin, port]) => inspected.some(signal => signal.pin === pin) || references.has(port)).map(([pin]) => pin)
+    const file = model.ibis_model_asset.project_relative_path
+    warnings.push(...packageCapacitanceWarnings({ selected: coupledPackage({ text: inspected[0].text, component: inspected[0].component, pins: selected }), file, sourceSha256: sha256(sources[file]) }))
+  }
 
   const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
   const rails = new Set<ConnectedSourceId>()
