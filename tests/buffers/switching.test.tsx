@@ -194,6 +194,18 @@ test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.2
 // <= 2% of the table swing (30 mV on 1.5 V, well inside DDR3's 175 mV VIH(ac) - VREF margin, JESD79-3F section 9),
 // and |t50_sim - t50_table| <= 10 ps at the table's mid-swing (0.8% of the 1.25 ns unit interval at the board's 800 Mb/s DQ rate).
 // R_dut, L_dut, C_dut, C_fixture and L_fixture are zero in every selected table (the parser rejects others).
+/** Read the name from the first generated .subckt declaration. */
+function firstSubcircuitName(source: string): string | undefined {
+  const prefix = '.subckt '
+  const lines = source.replaceAll('\r', '\n').replaceAll('\u2028', '\n').replaceAll('\u2029', '\n').split('\n')
+  for (const line of lines) {
+    if (!line.startsWith(prefix)) continue
+    let end = prefix.length
+    while (end < line.length && line[end].trim() !== '') end++
+    if (end > prefix.length) return line.slice(prefix.length, end)
+  }
+}
+
 const replays = [
   { file: 'sprm552c.ibs', component: 'am335x_zcz', pin: 'M3', power: 'E5', ground: 'A1', model: 'Model_336', role: 'AM335x DQ write' },
   { file: 'sprm552c.ibs', component: 'am335x_zcz', pin: 'F3', power: 'E5', ground: 'A1', model: 'Model_352', role: 'AM335x address/command' },
@@ -229,7 +241,8 @@ test('golden stage 4: vendor DDR3 buffers replayed into their own IBIS fixtures 
           references: { [replay.pin]: { pullup: 'vdd', pulldown: 'gnd', powerClamp: 'vdd', groundClamp: 'gnd' } }, corner: 'typical', packagePolicy: 'vendor' },
         run: { duration: duration * 1e3, pinStates: { sig: { mode: 'output', enabled: true } }, stimuli: { sig: { unitInterval: duration * 1e3, startTime: 0, initialState, pattern: { type: 'bits', bits: String(1 - initialState), repeat: false } } } },
       }, document })
-      const name = /^\.subckt (\S+)/m.exec(converted.source)![1]
+      const name = firstSubcircuitName(converted.source)
+      assert.ok(name, 'converted SPICE must declare a subcircuit')
       lines.push(converted.source)
       for (const wave of buffer.waveforms.filter(entry => entry.kind === edge)) {
         const k = instances.length
