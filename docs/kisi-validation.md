@@ -17,3 +17,51 @@ A live result must come from the pinned CLI, cover 100% of the target length wit
 This checks the quasi-TEM cross-section fields. It does not qualify route admission, PCB connectivity/short detection, losses, SPICE export fitting, IBIS, or eye measurements. The earlier [three-board experiment](https://github.com/ShiboSoftwareDev/kisi-signal-integrity-benchmark) records separate timing/export disagreements and an invalid shorted board; its eye results are not treated as golden physical references.
 
 The existing analytical known-answer checks remain useful alongside this independent numerical comparison. Kisi's own models are approximations, so disagreement requires investigation rather than assuming either tool is correct.
+
+
+## Run locally and in CI
+
+```sh
+pnpm install --frozen-lockfile
+pnpm kisi:setup
+pnpm test:kisi
+```
+
+`kisi:setup` downloads the official standalone Node CLI into ignored `.cache/kisi/` and verifies [the pinned release hash](../tests/fixtures/kisi/release.json). It verifies an existing cached copy too. There is no automatic network access during ordinary tests. A corrupt cached CLI fails with cleanup instructions; the dedicated validation command also fails if setup has not been run.
+
+`test:kisi` explicitly enables `SI_KISI_TESTS=1`, uses the existing Node/tsx runner sequentially, and prints both tools' numbers, percentage differences, and durations. The workflow follows the repo's Node 24 / pnpm 11.25.0 setup and runs the same commands. The full native JSON, generated KiCad coupons, configurations, and invocation records are kept in `.cache/kisi-validation/` and uploaded as CI evidence, including on assertion failures. Each coupon output directory is replaced for its next run; failed runs cannot reuse stale reports. The field cache is separate and keyed by the release digest. `KISI_THREADS=1` is a supported upstream runtime setting; the release is unmodified.
+
+```mermaid
+flowchart LR
+  A[Explicit kisi:setup] --> B{Release digest matches?}
+  B -->|yes| C[Generate uniform reference coupons]
+  B -->|no| X[Fail validation]
+  C --> D[Run pinned Kisi field solver]
+  C --> E[Run solveCrossSection]
+  D --> F{Full field coverage and valid modes?}
+  D -->|process failure| X
+  F -->|no| X
+  F -->|yes| G[Compare impedance and propagation delay]
+  E --> G
+  G --> H{Within fixed tolerances?}
+  H -->|yes| P[Pass validation]
+  H -->|no| X
+  X --> R[Preserve available native evidence]
+  P --> R
+```
+
+## Initial live result
+
+Measured 18 November 2026 with the protocol committed before the first comparison. No threshold was adjusted after seeing these numbers.
+
+| Coupon and quantity | Pipeline | Kisi | Relative difference |
+| --- | ---: | ---: | ---: |
+| Narrow microstrip impedance (Ω) | 96.567 | 96.017 | 0.572% |
+| Narrow microstrip delay (ps) | 110.439 | 110.888 | 0.404% |
+| Wide microstrip impedance (Ω) | 72.690 | 72.323 | 0.508% |
+| Wide microstrip delay (ps) | 112.868 | 113.320 | 0.399% |
+| Differential impedance (Ω) | 106.419 | 105.019 | 1.333% |
+| Differential/odd delay (ps) | 106.071 | 106.147 | 0.072% |
+| Common/even delay (ps) | 117.011 | 117.346 | 0.286% |
+
+Fixtures live in `tests/support/kisi-fixtures.ts`; the comparison assertions live in `tests/support/kisi.test.ts`, alongside the repo's other integration fixtures. The KiCad serializer describes these exact straight coupons only. It is not used to export or validate routed boards. No production sources, public exports, or library dependencies change.

@@ -39,7 +39,9 @@
     "check:modules": "tsx scripts/check-modules.ts",
     "check:vocabulary": "tsx scripts/check-vocabulary.ts",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "kisi:setup": "tsx scripts/setup-kisi.ts",
+    "test:kisi": "tsx scripts/check-kisi.ts"
   },
   "dependencies": {
     "@noble/hashes": "1.8.0",

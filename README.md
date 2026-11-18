@@ -135,3 +135,14 @@ local ground. Numeric offsets are seconds. Automatic duration adds 128 unit
 intervals at the slowest switching bit rate after startup. Quiet-only blocks use
 32 unit intervals at the slowest bit rate. Explicit durations are never extended.
 IBIS values always use the typical corner.
+
+## Development validation
+
+The optional Kisi comparison checks three uniform single-ended/differential cross-sections against an independent field solver. It uses the repo's Node test runner and needs no vendor IBIS files:
+
+```sh
+pnpm kisi:setup
+pnpm test:kisi
+```
+
+Kisi is SHA-256 pinned, cached locally, and never shipped in the package. Ordinary `pnpm test` stays offline and explicitly skips these live checks. The dedicated command and CI job require all three to run. See [the protocol, tolerances, results, and scope](docs/kisi-validation.md).
