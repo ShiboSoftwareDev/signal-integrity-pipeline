@@ -1,6 +1,5 @@
 import React from 'react'
-import { readFile } from 'node:fs/promises'
-import type { TestContext } from 'node:test'
+import { vendorText } from './vendor-models'
 import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, type CircuitJson, type CopperScope } from '../../src/board'
 import { TwoTraceBoard } from '../../examples/routed/two-trace-board'
 import type { RoutedProblem } from '../../src/pipeline'
@@ -22,20 +21,8 @@ export async function routedCopper(): Promise<{ circuitJson: CircuitJson; scope:
   return { circuitJson, scope: channelCopperScope({ circuit: circuitJson, connectivity, selected: sourceNetMembers(connectivity, trace.connected_source_port_ids[0]), reference: sourceNetMembers(connectivity, ground.source_net_id), distanceMm: 1 }) }
 }
 
-/** Explicitly skip unavailable vendor assets; they are never replaced with synthetic native models. */
-export async function routedProblem(context: TestContext, props: React.ComponentProps<typeof TwoTraceBoard> = {}): Promise<RoutedProblem | undefined> {
-  if (!process.env.IBIS_MODEL_DIR) {
-    context.skip('Set IBIS_MODEL_DIR to local vendor sn74lvc1g04.ibs; vendor bytes are not committed')
-    return
-  }
-  let bytes: Buffer
-  try {
-    bytes = await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`)
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    context.skip('Local vendor sn74lvc1g04.ibs is unavailable')
-    return
-  }
-  return { circuitJson: await renderCoreSignals(<TwoTraceBoard {...props} />), ibisSources: { 'models/sn74lvc1g04.ibs': bytes.toString('utf8') }, scopeDistanceMm: 1 }
+/** Real routed input; tests skip unavailable vendor models before entering this helper. */
+export async function routedProblem(props: React.ComponentProps<typeof TwoTraceBoard> = {}): Promise<RoutedProblem> {
+  const text = await vendorText('sn74lvc1g04.ibs')
+  return { circuitJson: await renderCoreSignals(<TwoTraceBoard {...props} />), ibisSources: { 'models/sn74lvc1g04.ibs': text }, scopeDistanceMm: 1 }
 }

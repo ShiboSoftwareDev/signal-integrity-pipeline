@@ -1,6 +1,6 @@
 import React from 'react'
 import { simulation } from '@tscircuit/core'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { Inverter, Reference } from './signal-parts'
@@ -28,7 +28,7 @@ function Board({ unrelatedY = 20, neighbour = false }: { unrelatedY?: number; ne
   </board>
 }
 
-test('TSX unrelated branched copper cannot reject a selected channel on the full board', { skip: !process.env.IBIS_MODEL_DIR }, async () => {
+test.skipIf(!process.env.IBIS_MODEL_DIR)('TSX unrelated branched copper cannot reject a selected channel on the full board', async () => {
   const circuit = await renderSignals(<Board />)
   const sources = { 'models/sn74lvc1g04.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`) }
   const [block] = prepareBlocks({ circuit, sources, distanceMm: 1 })

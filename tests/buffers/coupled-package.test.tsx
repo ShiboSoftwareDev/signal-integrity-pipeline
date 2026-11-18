@@ -1,6 +1,9 @@
+import { vendorAvailable } from '../support/vendor-models'
 import React from 'react'
 import { Circuit } from '@tscircuit/core'
-import test from 'node:test'
+import { setDefaultTimeout, test } from 'bun:test'
+
+setDefaultTimeout(150_000)
 import assert from 'node:assert/strict'
 import { convertPackaged } from '../../src/buffers/package'
 import { coupledPackage, coupledPackageElements } from '../../src/buffers/coupled-package'
@@ -128,11 +131,11 @@ V2 NC VDD NC NC
   }
 })
 
-test('golden invariants: DDR3 coupled-package selections stay SPD with |k| < 1, Maxwell C and realizable K', async context => {
+test.skipIf(!vendorAvailable('sprm552c.ibs'))('golden invariants: DDR3 coupled-package selections stay SPD with |k| < 1, Maxwell C and realizable K', async () => {
   // Same physics as the full-matrix check (tests/buffers/package-matrix.test.ts), on the exact pin sets the DDR3
   // TSX declarations select (examples/routed/ddr3-signals.tsx). Schur reduction of floating unused pins preserves
   // definiteness (Horn & Johnson, Matrix Analysis, 2nd ed., Theorem 7.7.6), and ngspice K must satisfy |k| < 1.
-  const text = await vendorText(context, 'sprm552c.ibs')
+  const text = await vendorText('sprm552c.ibs')
   if (!text) return
   const component = parseIbis(text).components.am335x_zcz
   const sets = { addrCmd: addrCmdPins.map(([, pin]) => pin), dqWrite: ['M3', 'M4', 'N1', 'N2', 'N3', 'N4', 'P3', 'P4', 'M2', 'P1', 'P2'] }
@@ -144,7 +147,7 @@ test('golden invariants: DDR3 coupled-package selections stay SPD with |k| < 1, 
     const maxwell = maxwellFacts(selected.C)
     const elements = coupledPackageElements({ matrices: selected, terminals: selected.pins.map((_, i) => `B${i}`), die: selected.pins.map((_, i) => `D${i}`), ground: 'G' })
     const k = Math.max(...elements.filter(line => line.startsWith('K')).map(line => Math.abs(Number(line.split(' ')[3]))))
-    context.diagnostic(JSON.stringify({ set: name, pins: selected.pins.length, mergedPins: selected.mergedPins, L, C, maxwell, largestKElement: k, largestKPins: L.pair.map(i => selected.pins[i]) }))
+    console.log(JSON.stringify({ set: name, pins: selected.pins.length, mergedPins: selected.mergedPins, L, C, maxwell, largestKElement: k, largestKPins: L.pair.map(i => selected.pins[i]) }))
     if (!(L.asymmetry <= 1e-12 && L.minimumEigenvalue > 0 && L.coupling < 1)) failures.push(`${name} L: ${JSON.stringify(L)}`)
     if (!(C.asymmetry <= 1e-12 && C.minimumEigenvalue > 0 && C.coupling < 1)) failures.push(`${name} C: ${JSON.stringify(C)}`)
     if (!(maxwell.minimumDiagonal > 0 && maxwell.maximumOffDiagonal <= 0 && maxwell.minimumRowSum >= -1e-9)) failures.push(`${name} Maxwell: ${JSON.stringify(maxwell)}`)
@@ -153,13 +156,13 @@ test('golden invariants: DDR3 coupled-package selections stay SPD with |k| < 1, 
   assert.deepEqual(failures, [])
 })
 
-test('golden invariants: Winbond DDR3 has no coupled package and every [Pin] R, L, C is non-negative', async context => {
+test.skipIf(!vendorAvailable('W631GG6MB-12.ibs'))('golden invariants: Winbond DDR3 has no coupled package and every [Pin] R, L, C is non-negative', async () => {
   // A scalar lumped package is passive iff each R, L and C is non-negative (1 x 1 energy matrices).
-  const text = await vendorText(context, 'W631GG6MB-12.ibs')
+  const text = await vendorText('W631GG6MB-12.ibs')
   if (!text) return
   const component = parseIbis(text).components['W631GG6MB-12']
   assert.equal(coupledPackage({ text, component, pins: Object.keys(component.pins) }), undefined)
   const values = Object.values(component.pins).flatMap(pin => [pin.resistance, pin.inductance, pin.capacitance]).filter(value => value !== undefined)
-  context.diagnostic(JSON.stringify({ pins: Object.keys(component.pins).length, scalarValues: values.length, package: component.package }))
+  console.log(JSON.stringify({ pins: Object.keys(component.pins).length, scalarValues: values.length, package: component.package }))
   assert.ok(values.length > 0 && values.every(value => Number.isFinite(value) && value! >= 0))
 })

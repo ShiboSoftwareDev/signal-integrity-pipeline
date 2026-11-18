@@ -1,6 +1,6 @@
 import React from 'react'
 import { Circuit } from '@tscircuit/core'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { Board } from '../support/coupled-package-fixture'
 import { modelRunDefinition } from '../../src/simulation'

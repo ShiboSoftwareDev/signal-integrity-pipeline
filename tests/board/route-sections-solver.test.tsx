@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RouteSectionsSolver, segmentRoutes } from '../../src/board'
 import { routedCopper } from '../support/routed-fixture'

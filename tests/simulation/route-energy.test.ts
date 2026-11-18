@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RouteEnergy, seriesEnergy, shuntEnergy, skinEnergy } from '../../src/simulation/route-energy'
 import { causalLossPoles } from '../../src/extraction'

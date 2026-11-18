@@ -1,6 +1,9 @@
+import { vendorAvailable } from '../support/vendor-models'
 import React from 'react'
 import { Circuit, simulation } from '@tscircuit/core'
-import test from 'node:test'
+import { setDefaultTimeout, test } from 'bun:test'
+
+setDefaultTimeout(150_000)
 import assert from 'node:assert/strict'
 import { convertIbisModelToSpice, cornerValue, interpolate, logicalBitSchedule, parseIbis, switchingWeights, type IbisDocument } from '@tscircuit/ibis-to-spice'
 import { convertPackaged } from '../../src/buffers/package'
@@ -214,11 +217,10 @@ const replays = [
   { file: 'W631GG6MB-12.ibs', component: 'W631GG6MB-12', pin: 'E3', power: 'A1', ground: 'B1', model: 'DATA_40', role: 'Winbond DQ read 40 ohm' },
 ] as const
 
-test('golden stage 4: vendor DDR3 buffers replayed into their own IBIS fixtures reproduce the vendor waveforms', { skip: process.env.SI_NATIVE_TESTS !== '1' && 'Set SI_NATIVE_TESTS=1 and IBIS_MODEL_DIR for bounded sequential native checks' }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(process.env.SI_NATIVE_TESTS !== '1' || !['sprm552c.ibs', 'W631GG6MB-12.ibs'].every(vendorAvailable) || !ngspiceAvailable())('golden stage 4: vendor DDR3 buffers replayed into their own IBIS fixtures reproduce the vendor waveforms', async () => {
   const texts = new Map<string, string>()
   for (const file of new Set(replays.map(replay => replay.file))) {
-    const text = await vendorText(context, file)
+    const text = await vendorText(file)
     if (!text) return
     texts.set(file, text)
   }

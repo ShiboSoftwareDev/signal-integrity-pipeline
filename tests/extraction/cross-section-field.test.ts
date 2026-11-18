@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { solveCrossSection, type CrossSection } from '../../src/extraction'
 
@@ -36,4 +36,4 @@ test('layered/mask energy sensitivity and Wheeler loss approach the analytic par
   const equal = solveCrossSection({ ...section, dielectrics: section.dielectrics.map(d => ({ ...d, er: 4 })) })
   const expectedEqual = equal.C[0][0] * (.18 * .02 + .02 * .025) / .2
   assert.ok(Math.abs(equal.dielectricLoss[0][0] / expectedEqual - 1) < .005)
-})
+}, 300_000)

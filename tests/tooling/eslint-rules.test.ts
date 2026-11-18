@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it } from 'bun:test'
 import { join } from 'node:path'
 import { RuleTester, type Rule } from 'eslint'
 import tseslint from 'typescript-eslint'

@@ -1,5 +1,5 @@
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import Differential from '../../examples/level1-differential/level1-differential'
@@ -7,7 +7,7 @@ import { RoutedPipelineSolver } from '../../src/pipeline'
 import { renderCoreSignals } from './core-render'
 import { prepareBlocks } from './signal-render'
 
-test('TSX differential receiver can share its physical pin with a routed termination stub', { skip: !process.env.IBIS_MODEL_DIR && 'Set IBIS_MODEL_DIR to local vendor sn65hvd72.ibs; vendor bytes are not committed' }, async () => {
+test.skipIf(!process.env.IBIS_MODEL_DIR)('TSX differential receiver can share its physical pin with a routed termination stub', async () => {
   const circuit = await renderCoreSignals(<Differential />)
   const sources = { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`, 'utf8') }
   const [block] = prepareBlocks({ circuit, sources })

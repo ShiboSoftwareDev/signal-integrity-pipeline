@@ -1,5 +1,5 @@
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { renderCoreSignals } from '../support/core-render'
 import { channelCopperScope, getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers, segmentRoutes, type CircuitJson } from '../../src/board'

@@ -1,6 +1,6 @@
 # Kisi development validation
 
-Compare `solveCrossSection` with [Kisi 0.3.3](https://github.com/riehlies/kisi/releases/tag/v0.3.3)'s independent Forstén field solver. Kisi is an external development tool, obtained from its upstream release and checked against its SHA-256. It is not bundled with the library.
+Compare `solveCrossSection` with [Kisi 0.3.3](https://github.com/riehlies/kisi/releases/tag/v0.3.3)'s independent Forstén field solver. Kisi is GPL-3.0-only and runs as an external development tool, obtained from its upstream release and checked against its SHA-256. It is not bundled with the library.
 
 ## Fixed comparison protocol
 
@@ -23,13 +23,13 @@ The existing analytical known-answer checks remain useful alongside this indepen
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm kisi:setup
-pnpm test:kisi
+bun run kisi:setup
+bun run test:kisi
 ```
 
 `kisi:setup` downloads the official standalone Node CLI into ignored `.cache/kisi/` and verifies [the pinned release hash](../tests/fixtures/kisi/release.json). It verifies an existing cached copy too. There is no automatic network access during ordinary tests. A corrupt cached CLI fails with cleanup instructions; the dedicated validation command also fails if setup has not been run.
 
-`test:kisi` explicitly enables `SI_KISI_TESTS=1`, uses the existing Node/tsx runner sequentially, and prints both tools' numbers, percentage differences, and durations. The workflow follows the repo's Node 24 / pnpm 11.25.0 setup and runs the same commands. The full native JSON, generated KiCad coupons, configurations, and invocation records are kept in `.cache/kisi-validation/` and uploaded as CI evidence, including on assertion failures. Each coupon output directory is replaced for its next run; failed runs cannot reuse stale reports. The field cache is separate and keyed by the release digest. `KISI_THREADS=1` is a supported upstream runtime setting; the release is unmodified.
+`test:kisi` explicitly enables `SI_KISI_TESTS=1`, uses `bun:test` sequentially, and prints both tools' numbers, percentage differences, and durations. The workflow runs the same Bun test commands after installing the frozen pnpm dependencies. Node 24 runs the unmodified Kisi CLI and the package-consumer checks. The full native JSON, generated KiCad coupons, configurations, and invocation records are kept in `.cache/kisi-validation/` and uploaded as CI evidence, including on assertion failures. Each coupon output directory is replaced for its next run; failed runs cannot reuse stale reports. The field cache is separate and keyed by the release digest. `KISI_THREADS=1` is a supported upstream runtime setting; the release is unmodified.
 
 ```mermaid
 flowchart LR

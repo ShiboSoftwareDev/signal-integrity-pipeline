@@ -1,4 +1,6 @@
-import test from 'node:test'
+import { setDefaultTimeout, test } from 'bun:test'
+
+setDefaultTimeout(120_000)
 import assert from 'node:assert/strict'
 import { causalLossPoles, causalLossResponse, crossoverPoles, skinCrossover, solveCrossSection } from '../../src/extraction'
 import { filamentImpedance } from '../support/golden-checks'
@@ -91,6 +93,7 @@ test('golden stage 3: simulated conductor resistance follows a filament referenc
   assert.deepEqual(conductorLoss([['0.1 x 0.0152 mm, b 0.2152', .1, .0152, .2152], ['0.2 x 0.035 mm, b 0.5', .2, .035, .5]]), [])
 })
 
-test('golden stage 3: wide thin trace (w/t 20) conductor resistance follows the filament reference', { todo: 'fails: -11.1% at 10 MHz (model planes are half-spaces; -4.9% against half-space planes), +5.5% at 100 MHz and +6.2% at 200 MHz (crossover shape)' }, () => {
+// Known failure: fails: -11.1% at 10 MHz (model planes are half-spaces; -4.9% against half-space planes), +5.5% at 100 MHz and +6.2% at 200 MHz (crossover shape)
+test.failing('golden stage 3: wide thin trace (w/t 20) conductor resistance follows the filament reference', () => {
   assert.deepEqual(conductorLoss([['0.3 x 0.0152 mm, b 0.2152', .3, .0152, .2152]]), [])
 })

@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import type { GraphicsObject } from 'graphics-debug'
 import { routeBoardDrawing, routeDisplayItems, routeFrame, routeMarks, routeStrip, routeStroke, routeView, type SimulationPcbDriverReceiverChannel } from '../../src/board'

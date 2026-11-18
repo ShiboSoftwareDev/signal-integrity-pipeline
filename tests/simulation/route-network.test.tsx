@@ -1,11 +1,12 @@
-import test from 'node:test'
+import { vendorAvailable } from '../support/vendor-models'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RoutedPipelineSolver, RoutedStageSolver } from '../../src/pipeline'
 import { RouteNetworkSolver, type RouteNetworkInput, type RoutedDeck } from '../../src/simulation'
 import { routedProblem } from '../support/routed-fixture'
 
-test('network owns real ladder node samples, complete probe evidence and the executable deck', async (context) => {
-  const input = await routedProblem(context)
+test.skipIf(!vendorAvailable('sn74lvc1g04.ibs'))('network owns real ladder node samples, complete probe evidence and the executable deck', async () => {
+  const input = await routedProblem()
   if (!input) return
   const port = { progress: (): void => undefined, runSolver: async (): Promise<never> => {
     throw new Error('network test must not run ngspice')

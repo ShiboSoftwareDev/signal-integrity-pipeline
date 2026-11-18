@@ -116,7 +116,7 @@ C/L/impedance/delay; it is not a blanket 2% conductor-loss claim.
 
 ## Numerical validation
 
-Run `node --import tsx --test --test-concurrency=1 tests/extraction/cross-section*.test.ts`.
+Run `bun test tests/extraction/cross-section*.test.ts`.
 Every added test file has one `test()` call. Pure numerical fixtures are intentionally
 not Circuit JSON. References live only in tests, never in the field solver.
 
@@ -169,7 +169,7 @@ wall step changes its result by less than 0.1%. These checks take tens of ms.
 
 The five numerical test files pass in 2.43 s including test-process and TypeScript
 startup; maximum process resident size is **140 MiB**, measured with `/usr/bin/time -l`.
-`pnpm test` with native/vendor opt-ins disabled passes **209**, skips **27**, fails **0**
+The pre-Bun `pnpm test` baseline with native/vendor opt-ins disabled passes **209**, skips **27**, fails **0**
 (236 tests). `pnpm lint`, `pnpm check:modules`, `pnpm check:vocabulary` and
 `pnpm typecheck` pass; lint retains the existing 535-line `extraction/mesh.ts` warning.
 The demo script is also typechecked explicitly because scripts are outside tsconfig.

@@ -1,4 +1,5 @@
-import test from 'node:test'
+import { vendorAvailable } from '../support/vendor-models'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { selectPackageModel } from '../../src/buffers/package-matrix'
 import type { PackageModel } from '../../src/buffers/package-model'
@@ -32,11 +33,11 @@ test('open unused leads retain principal R/L and floating-charge capacitance, wi
 import { parsePackageModel } from '../../src/buffers/package-model'
 import { energyFacts, maxwellFacts, vendorText } from '../support/golden-checks'
 
-test('golden invariants: AM335x vendor package L, C are SPD with |k| < 1 and C is Maxwell after sign correction', async context => {
+test.skipIf(!vendorAvailable('sprm552c.ibs'))('golden invariants: AM335x vendor package L, C are SPD with |k| < 1 and C is Maxwell after sign correction', async () => {
   // A passive reciprocal lumped package (IBIS 7.x [Define Package Model]; Paul, Inductance: Loop and Partial, ch. 5):
   // L and C symmetric positive definite, every |k| = |M_ij|/sqrt(L_ii L_jj) < 1; R PSD; the Maxwell C has positive
   // diagonal, non-positive off-diagonal entries and non-negative row sums. Tolerances are floating point only.
-  const text = await vendorText(context, 'sprm552c.ibs')
+  const text = await vendorText('sprm552c.ibs')
   if (!text) return
   const model = parsePackageModel(text, 'am335x_zcz')
   const selected = selectPackageModel(model, model.pins)
@@ -47,7 +48,7 @@ test('golden invariants: AM335x vendor package L, C are SPD with |k| < 1 and C i
   const self = model.L.map((row, i) => row[i])
   const mutual = model.L.map((row, i) => row.reduce((sum, value, j) => sum + (i === j ? 0 : Math.abs(value)), 0))
   const positiveRaw = model.C.flat().filter((value, index) => index % (model.pins.length + 1) !== 0 && value > 0).length
-  context.diagnostic(JSON.stringify({ pins: model.pins.length, L, C, R, maxwell, rawPositiveOffDiagonalC: positiveRaw, signCorrection: selected.capacitanceSignCorrection,
+  console.log(JSON.stringify({ pins: model.pins.length, L, C, R, maxwell, rawPositiveOffDiagonalC: positiveRaw, signCorrection: selected.capacitanceSignCorrection,
     selfLnH: [Math.min(...self) * 1e9, Math.max(...self) * 1e9], summedMutualLnH: [Math.min(...mutual) * 1e9, Math.max(...mutual) * 1e9], largestKPins: L.pair.map(i => model.pins[i]) }))
   assert.ok(L.asymmetry <= 1e-12 && L.minimumEigenvalue > 0 && L.coupling < 1, `L: ${JSON.stringify(L)}`)
   assert.ok(C.asymmetry <= 1e-12 && C.minimumEigenvalue > 0 && C.coupling < 1, `C: ${JSON.stringify(C)}`)

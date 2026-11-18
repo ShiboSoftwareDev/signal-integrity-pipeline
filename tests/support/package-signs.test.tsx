@@ -1,10 +1,12 @@
 import React from 'react'
 import { Circuit } from '@tscircuit/core'
-import test from 'node:test'
+import { afterEach, mock, spyOn, test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { source, Board } from './coupled-package-fixture'
 import { convertPackaged } from '../../src/buffers/package'
 import { sha256 } from '../../src/kernel'
+
+afterEach(() => mock.restore())
 
 test('TSX positive vendor capacitance magnitudes require a visible, hashed Maxwell correction', async () => {
   const bytes = new TextEncoder().encode(source.replaceAll('-.2p', '.2p').replaceAll('-.5p', '.5p').replaceAll('-.1p', '.1p'))
@@ -15,12 +17,12 @@ test('TSX positive vendor capacitance magnitudes require a visible, hashed Maxwe
   const pinMap = model.ibis_pin_name_to_source_port_id
   const input = { definition: { source: { file: 'fixture.ibs' }, component: 'fixture', pinMap, corner: 'typical' as const, packagePolicy: 'vendor' as const },
     run: { duration: '1ns', pinStates: { [pinMap.A1]: { mode: 'input' as const }, [pinMap.B1]: { mode: 'input' as const } }, stimuli: {} } }
-  const log = test.mock.method(console, 'warn', (..._args: unknown[]): void => {})
+  const log = spyOn(console, 'warn').mockImplementation((..._args: unknown[]): void => {})
   const converted = convertPackaged({ bytes, input })
   const warning = converted.warnings.find(message => message.includes('negated 6 off-diagonal capacitance entries'))
   assert.ok(warning, 'both symmetric entries of each nonzero pair are counted')
   assert.ok(warning.includes('fixture.ibs') && warning.includes(sha256(bytes)) && warning.includes('coupled'))
-  assert.ok(log.mock.calls.some(call => call.arguments.includes(warning)))
+  assert.ok(log.mock.calls.some(args => args.includes(warning)))
   assert.equal(converted.sourceSha256, sha256(bytes), 'evidence hashes the unchanged vendor bytes')
   assert.match(converted.source, /CPKG0_1a PAD0 PAD1 2\.5e-13/)
   for (const invalid of [source.replace('-.2p', '.2p'), source.replace('3p -.2p -.5p', '.1p .2p .5p').replaceAll('-.1p', '.1p')]) {

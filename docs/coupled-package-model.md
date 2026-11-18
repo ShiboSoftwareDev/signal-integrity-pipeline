@@ -170,5 +170,5 @@ AC oracles check full R, signed mutual L and Maxwell C against their equations,
 and validate mixed scalar/matrix and merged-rail netlists:
 
 ```sh
-SI_TEST_PACKAGE_NGSPICE=1 node --import tsx --test tests/buffers/coupled-package.test.tsx
+SI_TEST_PACKAGE_NGSPICE=1 bun test tests/buffers/coupled-package.test.tsx
 ```

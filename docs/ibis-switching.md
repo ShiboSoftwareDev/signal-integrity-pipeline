@@ -156,7 +156,7 @@ The opt-in two buffer-only ngspice transients compare 1.25 ns and 5 ns bit
 responses against a 2 mV limit; they do not solve a board:
 
 ```sh
-SI_TEST_SWITCHING_NGSPICE=1 node --import tsx --test tests/buffers/switching.test.tsx
+SI_TEST_SWITCHING_NGSPICE=1 bun test tests/buffers/switching.test.tsx
 ```
 
 An additional local diagnostic ran 12 AM335x **die-buffer-only** transients:

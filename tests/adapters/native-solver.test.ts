@@ -1,7 +1,7 @@
 // Fault injection at each step of the native solver lifecycle (ARCHITECTURE.md, Verification).
 // os.tmpdir() reads TMPDIR on every call, so each test points it at a private directory: any
 // workdir the adapter creates lands there, and "cleaned up" means that directory is empty again.
-import test from 'node:test'
+import { afterEach, test } from 'bun:test'
 import assert from 'node:assert/strict'
 import {mkdtemp,mkdir,readdir,readFile,rm,stat,symlink,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
@@ -11,17 +11,20 @@ import {invoke} from '../../src/solver'
 import {rootScope} from '../../src/kernel'
 import type {CircuitJson} from '../../src/board'
 
-type T={after:(fn:()=>Promise<void>|void)=>void}
+const cleanups: Array<() => Promise<void>> = []
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
 type Sandbox={root:string;tmp:string;tool:(body:string)=>string[];cwdFile:string;workdirGone:()=>Promise<void>}
 /** Points TMPDIR at a fresh private directory for one test and restores it afterwards, so leftover workdirs are easy to spot. */
-const sandbox=async(t: T): Promise<Sandbox>=>{
+const sandbox=async(): Promise<Sandbox>=>{
   const root=await mkdtemp(join(tmpdir(),'pcb-adapters-test-'))
   const tmp=join(root,'tmp')
   const previous=process.env.TMPDIR
   await mkdir(tmp)
   process.env.TMPDIR=tmp
   assert.equal(tmpdir(),tmp)
-  t.after(async()=>{
+  cleanups.push(async()=>{
     if(previous===undefined) delete process.env.TMPDIR
     else process.env.TMPDIR=previous
     await rm(root,{recursive:true,force:true})
@@ -44,8 +47,8 @@ const code=(expected: string,message?: RegExp): (error: unknown)=>boolean=>(erro
   return true
 }
 
-test('unsafe input or output path is rejected before any workdir exists',async t=>{
-  const {tmp}=await sandbox(t)
+test('unsafe input or output path is rejected before any workdir exists', async () => {
+  const {tmp}=await sandbox()
   const solver=createNativeSolver({tools:{ngspice:process.execPath}})
   for(const files of [{'../escape':'x'},{'/abs':'x'},{'a/./b':'x'},{'a\\b':'x'},{'c:x':'x'},{'':'x'}] as Record<string,string>[])
     await assert.rejects(solver({solver:'ngspice',files,args:['-e',''],outputFiles:[]}),code('file_path',/Expected a safe project-relative file path/))
@@ -54,31 +57,31 @@ test('unsafe input or output path is rejected before any workdir exists',async t
   assert.deepEqual(await readdir(tmp),[])
 })
 
-test('input write failure after mkdtemp still removes the workdir',async t=>{
-  const {tmp}=await sandbox(t)
+test('input write failure after mkdtemp still removes the workdir', async () => {
+  const {tmp}=await sandbox()
   const solver=createNativeSolver({tools:{ngspice:process.execPath}})
   // 'a' is written as a file, then 'a/b' needs it to be a directory.
   await assert.rejects(solver({solver:'ngspice',files:{'a':'x','a/b':'y'},args:['-e',''],outputFiles:[]}),{code:'EEXIST'})
   assert.deepEqual(await readdir(tmp),[])
 })
 
-test('spawn failure (nonexistent tool) rejects native_solver and removes the workdir',async t=>{
-  const {root,tmp}=await sandbox(t)
+test('spawn failure (nonexistent tool) rejects native_solver and removes the workdir', async () => {
+  const {root,tmp}=await sandbox()
   const solver=createNativeSolver({tools:{ngspice:join(root,'no-such-tool')}})
   await assert.rejects(solver({solver:'ngspice',files:{'deck.cir':'x'},args:[],outputFiles:['waveform.raw']}),code('native_solver',/^native_solver: ngspice: .*ENOENT/))
   assert.deepEqual(await readdir(tmp),[])
 })
 
-test('nonzero exit rejects native_solver with logs and removes the workdir',async t=>{
-  const {tool,workdirGone}=await sandbox(t)
+test('nonzero exit rejects native_solver with logs and removes the workdir', async () => {
+  const {tool,workdirGone}=await sandbox()
   const solver=createNativeSolver({tools:{ngspice:process.execPath}})
   await assert.rejects(solver({solver:'ngspice',files:{'deck.cir':'x'},args:tool(`process.stdout.write('out');process.stderr.write('err');process.exit(3)`),outputFiles:[]}),
     code('native_solver',/ngspice: Command failed[\s\S]*\nout\nerr$/))
   await workdirGone()
 })
 
-test('timeout kills the tool, rejects native_timeout and removes the workdir',async t=>{
-  const {root,tmp,tool,workdirGone}=await sandbox(t)
+test('timeout kills the tool, rejects native_timeout and removes the workdir', async () => {
+  const {root,tmp,tool,workdirGone}=await sandbox()
   const marker=join(root,'survived.txt')
   const solver=createNativeSolver({tools:{ngspice:process.execPath},timeoutMs:200})
   const started=Date.now()
@@ -94,8 +97,8 @@ test('timeout kills the tool, rejects native_timeout and removes the workdir',as
   await assert.rejects(stat(marker),{code:'ENOENT'})  // killed, not merely abandoned
 })
 
-test('missing requested output is omitted (solver.invoke rejects native_output) and the workdir is removed',async t=>{
-  const {tool,workdirGone}=await sandbox(t)
+test('missing requested output is omitted (solver.invoke rejects native_output) and the workdir is removed', async () => {
+  const {tool,workdirGone}=await sandbox()
   const solver=createNativeSolver({tools:{ngspice:process.execPath}})
   const request={solver:'ngspice' as const,files:{'deck.cir':'x'},args:tool(`require('node:fs').writeFileSync('extra.dat','e')`),outputFiles:['waveform.dat']}
   const result=await solver(request)
@@ -105,8 +108,8 @@ test('missing requested output is omitted (solver.invoke rejects native_output) 
   await workdirGone()
 })
 
-test('requested output that is a symlink out of the workdir rejects file_path and removes the workdir',async t=>{
-  const {root,tool,workdirGone}=await sandbox(t)
+test('requested output that is a symlink out of the workdir rejects file_path and removes the workdir', async () => {
+  const {root,tool,workdirGone}=await sandbox()
   const secret=join(root,'secret.txt')
   await writeFile(secret,'secret')
   const solver=createNativeSolver({tools:{ngspice:process.execPath}})
@@ -115,8 +118,8 @@ test('requested output that is a symlink out of the workdir rejects file_path an
   await workdirGone()
 })
 
-test('loadIbisSources rejects traversal and symlinks escaping baseDir, follows contained symlinks',async t=>{
-  const {root}=await sandbox(t)
+test('loadIbisSources rejects traversal and symlinks escaping baseDir, follows contained symlinks', async () => {
+  const {root}=await sandbox()
   const baseDir=join(root,'project')
   const outside=join(root,'outside.ibs')
   await mkdir(join(baseDir,'models'),{recursive:true})
@@ -134,8 +137,8 @@ test('loadIbisSources rejects traversal and symlinks escaping baseDir, follows c
   assert.equal(new TextDecoder().decode(sources['models/link.ibs'] as Uint8Array),'inside')
 })
 
-test('native adapter instances serialize processes and preserve the thread and raw-output environment', async t => {
-  const { root, tool } = await sandbox(t)
+test('native adapter instances serialize processes and preserve the thread and raw-output environment', async () => {
+  const { root, tool } = await sandbox()
   const lock = join(root, 'active')
   const body = `const fs=require('node:fs');fs.closeSync(fs.openSync(${JSON.stringify(lock)},'wx'));setTimeout(()=>{fs.unlinkSync(${JSON.stringify(lock)});console.log(process.env.OMP_NUM_THREADS+':'+process.env.SPICE_ASCIIRAWFILE)},30)`
   const first = createNativeSolver({ tools: { ngspice: process.execPath } })

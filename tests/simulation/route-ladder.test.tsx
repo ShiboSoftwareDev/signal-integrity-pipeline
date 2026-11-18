@@ -1,4 +1,6 @@
-import test from 'node:test'
+import { setDefaultTimeout, test } from 'bun:test'
+
+setDefaultTimeout(150_000)
 import assert from 'node:assert/strict'
 import { routedCopper } from '../support/routed-fixture'
 import { segmentRoutes, type RouteWire, type RouteXY } from '../../src/board'
@@ -104,7 +106,7 @@ test('golden stage 5: ladder elements integrate to L l, C l, R l and K = L12/sqr
   }
 })
 
-const native = process.env.SI_NATIVE_TESTS !== '1' && 'Set SI_NATIVE_TESTS=1 for bounded sequential native checks'
+const skipNativeTests = process.env.SI_NATIVE_TESTS !== '1'
 
 /** One small transient deck: ramp sources, the ladder, resistive loads and wrdata of the named nodes. */
 function transientDeck(title: string, ladder: RouteLadder, sources: { node: string; resistance: number; sign: number }[], loads: { node: string; resistance: number }[], stopSeconds: number, probes: string[]): string {
@@ -131,21 +133,19 @@ function matchedRun(): Promise<{ rows: number[][]; delay: number; z: number; cel
   return matched
 }
 
-test('golden stage 6: matched line delay is l sqrt(er)/c and the near end sees no reflection', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: matched line delay is l sqrt(er)/c and the near end sees no reflection', async () => {
   const { rows, delay, z, cells } = await matchedRun()
   const measured = crossingTime(rows, 2, .25) - crossingTime(rows, 1, .25)
   const nearRipple = Math.max(...rows.filter(row => row[0] >= 2e-10 && row[0] <= 3 * delay).map(row => Math.abs(row[1] - .5)))
-  context.diagnostic(JSON.stringify({ z0: z, cells, expectedDelayPs: delay * 1e12, measuredDelayPs: measured * 1e12, delayError: measured / delay - 1, nearRippleV: nearRipple }))
+  console.log(JSON.stringify({ z0: z, cells, expectedDelayPs: delay * 1e12, measuredDelayPs: measured * 1e12, delayError: measured / delay - 1, nearRippleV: nearRipple }))
   assert.ok(Math.abs(measured / delay - 1) <= .01, `delay ${measured} vs ${delay}`)
   assert.ok(nearRipple <= .01, `near-end reflection ripple ${nearRipple} V`)
 })
 
-test('golden stage 6: matched line far end stays at the incident level after the edge', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: matched line far end stays at the incident level after the edge', async () => {
   const { rows, delay } = await matchedRun()
   const farRipple = Math.max(...rows.filter(row => row[0] >= delay + 2e-10 && row[0] <= 3 * delay).map(row => Math.abs(row[2] - .5)))
-  context.diagnostic(JSON.stringify({ farRippleV: farRipple }))
+  console.log(JSON.stringify({ farRippleV: farRipple }))
   assert.ok(farRipple <= .01, `far-end ripple ${farRipple} V`)
 })
 
@@ -160,8 +160,7 @@ function lattice(time: number, delay: number, incident: number, source: number, 
   return value
 }
 
-test('golden stage 6: open end doubles the wave and bounces follow the lattice diagram', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: open end doubles the wave and bounces follow the lattice diagram', async () => {
   // Rs = Z0/3 gives Gamma_S = -1/2; the open end gives Gamma_L = +1 (1 Gohm). Lattice diagram (Bergeron; Johnson &
   // Graham, High-Speed Digital Design, section 4.3): far-end steps at (2k+1)T, near-end steps at 2kT, plateaus from the
   // summed reflections, first far plateau = 2 x incident. Tolerances: every plateau (k = 0..3, sampled mid-plateau)
@@ -189,12 +188,11 @@ test('golden stage 6: open end doubles the wave and bounces follow the lattice d
       records.push({ end, k, plateauV: value, expectedV: expected, stepPs: crossing * 1e12, expectedStepPs: step * 1e12 })
     }
   }
-  context.diagnostic(JSON.stringify(records))
+  console.log(JSON.stringify(records))
   assert.deepEqual(failures, [])
 })
 
-test('golden stage 6: symmetric coupled pair carries even and odd modes at their own L/C velocities', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: symmetric coupled pair carries even and odd modes at their own L/C velocities', async () => {
   // Symmetric pair: even mode L_e = L11 + L12, C_e = C11 + C12; odd mode with the minus sign; T_m = l sqrt(L_m C_m),
   // Z_m = sqrt(L_m/C_m) (Paul, MTL 2nd ed., section 5.2). Pure modal drive with modal terminations launches only that
   // mode. Tolerance: each modal delay (far minus near 50% crossings) within 1% of its prediction.
@@ -212,12 +210,11 @@ test('golden stage 6: symmetric coupled pair carries even and odd modes at their
     records.push({ mode: sign, z, expectedDelayPs: delay * 1e12, measuredDelayPs: measured * 1e12, error: measured / delay - 1 })
     if (!(Math.abs(measured / delay - 1) <= .01)) failures.push(`${sign > 0 ? 'even' : 'odd'}: ${measured} vs ${delay}`)
   }
-  context.diagnostic(JSON.stringify(records))
+  console.log(JSON.stringify(records))
   assert.deepEqual(failures, [])
 })
 
-test('golden stage 6: settled voltage equals the DC divider including the line resistance', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: settled voltage equals the DC divider including the line resistance', async () => {
   // At DC every Foster inductor shorts its resistor and every dielectric branch is open, so the line is R_dc l in
   // series: V_far = Vs RL/(Rs + R l + RL), V_near = Vs (R l + RL)/(Rs + R l + RL), with R = 1/(sigma w t) from the
   // geometry, not from the solver. Evaluated with ngspice .op, the t -> infinity state: the slowest Foster pole
@@ -231,7 +228,7 @@ test('golden stage 6: settled voltage equals the DC divider including the line r
   const far = row.at(-1)!
   const expectedNear = (resistance + 25) / (50 + resistance)
   const expectedFar = 25 / (50 + resistance)
-  context.diagnostic(JSON.stringify({ lineResistance: resistance, near, expectedNear, far, expectedFar }))
+  console.log(JSON.stringify({ lineResistance: resistance, near, expectedNear, far, expectedFar }))
   assert.ok(Math.abs(near - expectedNear) <= 1e-5 && Math.abs(far - expectedFar) <= 1e-5, `near ${near} vs ${expectedNear}, far ${far} vs ${expectedFar}`)
 })
 
@@ -325,12 +322,11 @@ function banded(label: string, results: { frequency: number; mode: number; ladde
   return { records, failures }
 }
 
-test('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: ladder attenuation follows a filament conductor-loss reference from 10 MHz to 5 GHz', async () => {
   // One uncoupled trace: the DDR3 board's inner trace, 0.1 x 0.0152 mm centred in b = 0.2152 mm, er 4.1, planes 15.2 um.
   const section: CrossSection = { conductors: [{ id: 's', xMm: 0, zMm: .1, widthMm: .1, thicknessMm: .0152 }], planes: [{ zMm: 0 }, { zMm: .2152 }], dielectrics: [{ zMm: 0, thicknessMm: .2152, er: 4.1, lossTangent: 0 }] }
   const { records, failures } = banded('0.1 x 0.0152 mm', await modalAttenuation(section, .0152e-3))
-  context.diagnostic(JSON.stringify(records))
+  console.log(JSON.stringify(records))
   console.table(records)
   assert.deepEqual(failures, [])
 })
@@ -343,20 +339,20 @@ async function pairAttenuation(label: string, conductors: [number, number, numbe
 
 // Check 29 exercises the coupled skin multiport (55% of the DDR3 addr/cmd cells): even and odd modes of a symmetric
 // pair, then the two modes of a mixed pair whose rows have different DC-to-skin crossovers.
-test('golden stage 6: coupled-pair modal attenuation follows a 2 x 2 filament reference from 10 MHz to 5 GHz', { skip: native }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+test.skipIf(skipNativeTests || !ngspiceAvailable())('golden stage 6: coupled-pair modal attenuation follows a 2 x 2 filament reference from 10 MHz to 5 GHz', async () => {
   // Two 0.1 x 0.0152 mm traces with a 0.1 mm gap.
   const { records, failures } = await pairAttenuation('symmetric 0.1/0.1', [[-.1, .1, .0152], [.1, .1, .0152]])
-  context.diagnostic(JSON.stringify(records))
+  console.log(JSON.stringify(records))
   console.table(records)
   assert.deepEqual(failures, [])
 })
 
-test('golden stage 6: mixed-thickness pair modal attenuation follows a 2 x 2 filament reference', { skip: native, todo: 'fails at one point: mode 0 -10.7% at 10 MHz (model planes are half-spaces); every other point within the band' }, async context => {
-  if (!ngspiceAvailable()) return context.skip('ngspice is not on PATH')
+// Known failure: fails at one point: mode 0 -10.7% at 10 MHz (model planes are half-spaces); every other point within the band
+const mixedThicknessTest = skipNativeTests || !ngspiceAvailable() ? test.skip : test.failing
+mixedThicknessTest('golden stage 6: mixed-thickness pair modal attenuation follows a 2 x 2 filament reference', async () => {
   // 0.1 x 0.0152 mm beside 0.2 x 0.035 mm, 0.1 mm gap.
   const { records, failures } = await pairAttenuation('mixed 0.1@15.2um / 0.2@35um', [[-.1, .1, .0152], [.15, .2, .035]])
-  context.diagnostic(JSON.stringify(records))
+  console.log(JSON.stringify(records))
   console.table(records)
   assert.deepEqual(failures, [])
 })

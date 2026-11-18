@@ -1,17 +1,17 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {validateCircuitRecords} from '../../src/board/index.js'
 
 // Board admission is the registered validation the pipeline runs before output or solvers.
-test('malformed physical record fails registered validation before output or solvers',async()=>{
+test('malformed physical record fails registered validation before output or solvers', async () => {
   const circuitJson=[{type:'pcb_plated_hole',pcb_plated_hole_id:'bad-hole'}]
   await assert.rejects(async()=>validateCircuitRecords(circuitJson),
     error=>error.code==='circuit_schema'&&/^circuit_schema: pcb_plated_hole bad-hole: /.test(error.message)&&error.message.length<300)
   assert.throws(()=>validateCircuitRecords({}),{code:'circuit_schema',message:'circuit_schema: Expected a Circuit JSON record array'})
 })
 
-test('registered valid records are checked without rewriting source values',()=>{
+test('registered valid records are checked without rewriting source values', () => {
   const records=[{type:'source_component',source_component_id:'chip',ftype:'simple_chip',name:'CHIP'},{type:'simulation_voltage_probe',simulation_voltage_probe_id:'probe',signal_input_source_port_id:'port'}]
   const before=structuredClone(records)
   validateCircuitRecords(records)
@@ -19,7 +19,7 @@ test('registered valid records are checked without rewriting source values',()=>
   assert.throws(()=>validateCircuitRecords([{type:'unknown_record',unknown_record_id:'bad'}]),/unknown_record bad: no registered record schema/)
 })
 
-test('newer circuit-json records validate without rewriting values or accepting invalid fields',()=>{
+test('newer circuit-json records validate without rewriting values or accepting invalid fields', () => {
   const quote={type:'pcb_quote_estimate',pcb_quote_estimate_id:'quote',pcb_board_id:'board',supplier_name:'test supplier',currency:'USD',quantity:1,estimated_at:'2026-11-02T00:00:00Z',is_manufacturing_cost_complete:false,is_landed_cost_complete:false}
   const records=[quote]
   const before=structuredClone(records)
@@ -28,7 +28,7 @@ test('newer circuit-json records validate without rewriting values or accepting 
   assert.throws(()=>validateCircuitRecords([{...quote,quantity:'invalid'}]),/circuit_schema: pcb_quote_estimate quote: .*quantity/)
 })
 
-test('saved board schema aliases validate without rewriting geometry or accepting malformed holes',async()=>{
+test('saved board schema aliases validate without rewriting geometry or accepting malformed holes', async () => {
   const records=JSON.parse(await readFile(new URL('../fixtures/am3352.circuit.json',import.meta.url),'utf8'))
   const original=JSON.stringify(records)
   validateCircuitRecords(records)
@@ -38,7 +38,7 @@ test('saved board schema aliases validate without rewriting geometry or acceptin
   assert.throws(()=>validateCircuitRecords([hole]),/circuit_schema.*pcb_plated_hole/)
 })
 
-test('saved core group and board-text forms validate in both legacy and circuit-json shapes without rewriting',()=>{
+test('saved core group and board-text forms validate in both legacy and circuit-json shapes without rewriting', () => {
   const group={type:'pcb_group',pcb_group_id:'group',source_group_id:'source_group',is_subcircuit:true,subcircuit_id:'sub',name:'Processor',
     center:{x:0,y:0},width:1,height:1,pcb_component_ids:[]}
   const text={type:'pcb_silkscreen_text',pcb_silkscreen_text_id:'text',anchor_alignment:'center',anchor_position:{x:0,y:0},

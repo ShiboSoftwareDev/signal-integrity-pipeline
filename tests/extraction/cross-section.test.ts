@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionResult, type Matrix } from '../../src/extraction'
 import { coupledMicrostrip, coupledStripline, pozarStriplineAttenuation, singleMicrostrip, stripline } from './cross-section-reference'

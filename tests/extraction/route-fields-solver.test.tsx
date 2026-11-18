@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RouteFieldsSolver, routeCrossSection, solveCrossSection } from '../../src/extraction'
 import { segmentRoutes } from '../../src/board'

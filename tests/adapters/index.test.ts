@@ -2,22 +2,25 @@ import { existsSync } from 'node:fs'
 import React from 'react'
 import Single from '../support/unit-single-ended'
 import { renderSignals } from '../support/signal-render'
-// Copied from tests/node.test.ts, repointed at src/adapters. Assertions unchanged.
-import test from 'node:test'
+import { afterEach, test } from 'bun:test'
 import assert from 'node:assert/strict'
 import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,stat} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createNativeSolver,loadIbisSources} from '../../src/adapters'
 
+const temporaryRoots: string[] = []
+afterEach(async () => {
+  for (const path of temporaryRoots.splice(0)) await rm(path, { recursive: true, force: true })
+})
 /** Makes a scratch directory that is deleted when the test finishes. */
-const temporary=async(t: {after:(fn:()=>Promise<void>)=>void}): Promise<string>=>{
+const temporary=async(): Promise<string>=>{
   const path=await mkdtemp(join(tmpdir(),'pcb-node-test-'))
-  t.after(()=>rm(path,{recursive:true,force:true}))
+  temporaryRoots.push(path)
   return path
 }
-test('native adapter isolates requests, captures files and logs, and cleans up success and failure',async t=>{
-  const root=await temporary(t)
+test('native adapter isolates requests, captures files and logs, and cleans up success and failure', async () => {
+  const root=await temporary()
   const entry=join(root,'solver.mjs')
   const location=join(root,'location.txt')
   await writeFile(entry,`import {readFileSync,writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(location)},process.cwd());process.stdout.write('ran');process.stderr.write('notice');if(process.argv.includes('signal'))process.kill(process.pid,'SIGTERM');if(process.argv.includes('fail'))process.exit(7);if(process.argv.includes('timeout'))setTimeout(()=>{},15000);else writeFileSync('output.dat',readFileSync('nested/input.dat','utf8'));`)
@@ -41,9 +44,9 @@ test('native adapter isolates requests, captures files and logs, and cleans up s
   await assert.rejects(stat(await readFile(location,'utf8')),{code:'ENOENT'})
   await assert.rejects(solver({...request,files:{'../escape':'bad'}}),/file_path/)
   assert.throws(()=>createNativeSolver({timeoutMs:0}),/native_timeout/)
-})
-test('local IBIS loading deduplicates declarations, rejects missing files and symlink escapes', { skip: (!existsSync(`${process.env.IBIS_MODEL_DIR ?? 'models'}/sn74lvc1g04.ibs`)) && 'Local vendor IBIS assets are unavailable; vendor bytes are not committed' },async t=>{
-  const root=await temporary(t)
+}, 15_000)
+test.skipIf(!existsSync(`${process.env.IBIS_MODEL_DIR ?? 'models'}/sn74lvc1g04.ibs`))('local IBIS loading deduplicates declarations, rejects missing files and symlink escapes', async () => {
+  const root=await temporary()
   const baseDir=join(root,'project')
   const outside=join(root,'outside.ibs')
   await mkdir(join(baseDir,'models'),{recursive:true})

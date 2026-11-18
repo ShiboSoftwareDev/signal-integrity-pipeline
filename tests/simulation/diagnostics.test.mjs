@@ -1,7 +1,7 @@
 // Every code in src/simulation/diagnostics.ts raised with today's code AND message (module rule M3).
 // MESSAGES are the pre-module implementation's messages, recorded on 2026-11-07 while the old flat src/
 // still existed and this test compared old and new raisers directly.
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import {Diagnostic} from '../../src/kernel/index.js'
 import {fixtureGeometry as geometryFromCircuitJson} from './fixtures.mjs'
@@ -103,7 +103,7 @@ test('simulation codes and messages equal the pre-module implementation', () => 
 
 
 const {circuitNodes,electricalSources}=current
-test('a channel net split into per-subcircuit records joined by net-only traces is cut like one shared net',()=>{
+test('a channel net split into per-subcircuit records joined by net-only traces is cut like one shared net', () => {
   // CPU pin -> DQ@cpu, RAM pin -> DQ@ram, both joined to DQ@board, as boards built from subcircuits save them.
   const split=cj=>{
     for(const [id,scope] of [['dq-cpu','cpu'],['dq-ram','ram'],['dq-board','board']]) cj.push({type:'source_net',source_net_id:id,name:'DQ',subcircuit_id:scope,member_source_group_ids:[]})
@@ -122,7 +122,7 @@ test('a channel net split into per-subcircuit records joined by net-only traces 
   assert.throws(()=>circuitNodes({ circuit: fanout.cj, mappings: fanout.g.mappings, modeling: fanout.m }),/channel_fanout/)
 })
 
-test('orphan ideal sources fail preflight',()=>{
+test('orphan ideal sources fail preflight', () => {
   const {cj,m,g}=fixture()
   cj.push({type:'source_component',source_component_id:'voltage',name:'ORPHAN'},{type:'source_port',source_port_id:'vspos',source_component_id:'voltage'},{type:'source_port',source_port_id:'vsneg',source_component_id:'voltage'},{type:'simulation_voltage_source',simulation_voltage_source_id:'voltage-source',terminal1_source_port_id:'vspos',terminal2_source_port_id:'vsneg',voltage:3.3,is_dc_source:false})
   const nodes=circuitNodes({ circuit: cj, mappings: g.mappings, modeling: m })

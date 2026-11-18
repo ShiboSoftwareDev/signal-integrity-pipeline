@@ -1,5 +1,6 @@
+import { vendorAvailable } from '../support/vendor-models'
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { TwoTraceBoard } from '../../examples/routed/two-trace-board'
@@ -18,7 +19,7 @@ import { driverWeights, transientDuration, voltageNames } from '../support/route
 import Differential from '../../examples/level1-differential/level1-differential'
 import type { GraphicsObject } from 'graphics-debug'
 
-test('TSX two-trace routed deck pins the single coupled skin multiport and declarative transient vectors', { skip: !process.env.IBIS_MODEL_DIR && 'Set IBIS_MODEL_DIR to local vendor sn74lvc1g04.ibs; vendor bytes are not committed' }, async () => {
+test.skipIf(!process.env.IBIS_MODEL_DIR)('TSX two-trace routed deck pins the single coupled skin multiport and declarative transient vectors', async () => {
   const circuit = await renderCoreSignals(<TwoTraceBoard bit-rate="400Mbps" duration-seconds={4e-9} />)
   const bytes = await readFile(`${process.env.IBIS_MODEL_DIR}/sn74lvc1g04.ibs`)
   assert.equal(sha256(bytes), '03033638d7fe8bf268428be133a5aad63aae0145980113561b20ab92063e2c00', 'oracle uses the same vendor revision')
@@ -49,8 +50,8 @@ const synthetic: SolverContext = { progress: (): void => undefined, runSolver: a
   return { stdout: '', stderr: '', files: { 'waveform.raw': formatSpiceVectors([{ name: 'time', type: 'time', values: [0, duration] }, ...names.map(name => ({ name: `v(${name})`, type: 'voltage', values: [0, 0] }))]) } }
 } }
 
-test('six static stages walk all blocks without nested pipelines and produce deterministic artifacts', async context => {
-  const input = await routedProblem(context)
+test.skipIf(!vendorAvailable('sn74lvc1g04.ibs'))('six static stages walk all blocks without nested pipelines and produce deterministic artifacts', async () => {
+  const input = await routedProblem()
   if (!input) return
   const solver = new RoutedPipelineSolver(input, synthetic)
   assert.throws(() => solver.getOutput(), /incomplete/)
@@ -113,8 +114,8 @@ test('every completed stage retains its own final drawing with few, readable lab
 })
 
 
-test('default two-trace TSX deck retains the measured driver lead-in and captures its complete rise', async context => {
-  const input = await routedProblem(context)
+test.skipIf(!vendorAvailable('sn74lvc1g04.ibs'))('default two-trace TSX deck retains the measured driver lead-in and captures its complete rise', async () => {
+  const input = await routedProblem()
   if (!input) return
   const solver = new RoutedPipelineSolver(input, synthetic)
   solver.solveUntilStage('RouteTransientSolver')
@@ -184,11 +185,10 @@ function assertDrawing(circuit: CircuitJson, drawing: GraphicsObject, state: str
 }
 
 for (const name of ['two-trace', 'level1-differential'])
-  test(`${name}: every iteration, stage boundary and pending transient has a physical drawing`, async (context) => {
+  test.skipIf(name === 'level1-differential' && !vendorAvailable('sn65hvd72.ibs'))(`${name}: every iteration, stage boundary and pending transient has a physical drawing`, async () => {
     let input
     if (name === 'two-trace') input = (await routedVisualFixture()).root.inputProblem
     else {
-      if (!process.env.IBIS_MODEL_DIR) return context.skip('Set IBIS_MODEL_DIR for the local differential vendor model')
       input = {
         circuitJson: await renderCoreSignals(<Differential />),
         ibisSources: { 'models/sn65hvd72.ibs': await readFile(`${process.env.IBIS_MODEL_DIR}/sn65hvd72.ibs`, 'utf8') },

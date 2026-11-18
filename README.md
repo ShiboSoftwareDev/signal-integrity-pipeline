@@ -138,11 +138,13 @@ IBIS values always use the typical corner.
 
 ## Development validation
 
-The optional Kisi comparison checks three uniform single-ended/differential cross-sections against an independent field solver. It uses the repo's Node test runner and needs no vendor IBIS files:
+Run the ordinary suite with `bun test`. Tests use `bun:test`; temporary resources use Bun lifecycle hooks, optional native/vendor checks use `test.skipIf`, and known failures use `test.failing` so they still execute. Install dependencies with the existing frozen pnpm lockfile. Node remains the target of the separate package-consumer checks.
+
+The optional Kisi comparison checks three uniform single-ended/differential cross-sections against an independent field solver. It uses Bun's `bun:test` runner and needs no vendor IBIS files:
 
 ```sh
-pnpm kisi:setup
-pnpm test:kisi
+bun run kisi:setup
+bun run test:kisi
 ```
 
-Kisi is SHA-256 pinned, cached locally, and never shipped in the package. Ordinary `pnpm test` stays offline and explicitly skips these live checks. The dedicated command and CI job require all three to run. See [the protocol, tolerances, results, and scope](docs/kisi-validation.md).
+Kisi is SHA-256 pinned, cached locally, and never shipped in the package. Ordinary `bun test` stays offline and explicitly skips these live checks. The dedicated command and CI job require all three to run. See [the protocol, tolerances, results, and scope](docs/kisi-validation.md).

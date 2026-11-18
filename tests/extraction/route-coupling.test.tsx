@@ -1,5 +1,5 @@
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import Board from '../fixtures/return-agreement'
 import { renderCoreSignals } from '../support/core-render'

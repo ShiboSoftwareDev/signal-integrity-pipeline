@@ -1,5 +1,5 @@
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { convertIbisModelToSpice, parseIbis } from '@tscircuit/ibis-to-spice'
@@ -65,7 +65,7 @@ async function fixture(differential: boolean = false): Promise<{ bytes: Uint8Arr
   return { bytes, declarations: generalDeclarations({ circuit: bindings.circuitJson, mappings: bindings.mappings, modeling: bindings.modeling, controls: bindings.controls }) }
 }
 
-test('ideal die rails preserve every pin package at the typical corner', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('ideal die rails preserve every pin package at the typical corner', async () => {
   for (const differential of [false, true]) {
     const { bytes, declarations } = await fixture(differential)
     const document = parseIbis(new TextDecoder().decode(bytes))

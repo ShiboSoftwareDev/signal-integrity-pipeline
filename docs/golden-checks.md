@@ -2,8 +2,8 @@
 
 Each check compares the routed 2.5D pipeline with an answer fixed by exact physics, an
 independent reference solve, a hard invariant or the vendor's own data. The expected value and
-tolerance sit in the test beside their source. A failing check is never loosened: it is marked
-`todo` with its measured value and listed under findings. A "post-hoc" note is an explanation
+tolerance sit in the test beside their source. A failing check is never loosened: it runs as a known
+`test.failing` case with its measured value and listed under findings. A "post-hoc" note is an explanation
 found after a failure, not a re-fitted check.
 
 Only routed 2.5D modules are exercised: `cross-section`, `causal-loss`, `route-fields-solver`,
@@ -13,11 +13,11 @@ live in the test file of the module they exercise. Shared measuring helpers are 
 
 ```sh
 # Always-on checks (no native tools, no vendor files)
-node --import tsx --test --test-concurrency=1 'tests/**/*.test.ts' 'tests/**/*.test.tsx'
+bun test
 # Vendor package checks: local, never-committed IBIS files
-IBIS_MODEL_DIR=/path/to/models node --import tsx --test tests/buffers/package-matrix.test.ts tests/buffers/coupled-package.test.tsx
+IBIS_MODEL_DIR=/path/to/models bun test tests/buffers/package-matrix.test.ts tests/buffers/coupled-package.test.tsx
 # Native ngspice checks: small decks, one sequential ngspice at a time (OMP_NUM_THREADS=1)
-SI_NATIVE_TESTS=1 IBIS_MODEL_DIR=/path/to/models node --import tsx --test tests/simulation/route-ladder.test.tsx tests/buffers/switching.test.tsx
+SI_NATIVE_TESTS=1 IBIS_MODEL_DIR=/path/to/models bun test tests/simulation/route-ladder.test.tsx tests/buffers/switching.test.tsx
 ```
 
 Native checks skip without `SI_NATIVE_TESTS=1` or without `ngspice` on `PATH`. Vendor checks

@@ -1,11 +1,12 @@
-import test from 'node:test'
+import { vendorAvailable } from '../support/vendor-models'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RoutedAdmissionSolver } from '../../src/pipeline'
 import { prepareBlockById, signalBlocks } from '../../src/pipeline/signals'
 import { routedProblem } from '../support/routed-fixture'
 
-test('admission uses shared block lowering, retains warnings and rejects invalid scope', async (context) => {
-  const input = await routedProblem(context)
+test.skipIf(!vendorAvailable('sn74lvc1g04.ibs'))('admission uses shared block lowering, retains warnings and rejects invalid scope', async () => {
+  const input = await routedProblem()
   if (!input) return
   const [id] = signalBlocks(input.circuitJson).map(block => block.simulation_pcb_transient_channel_simulation_id)
   const block = prepareBlockById({

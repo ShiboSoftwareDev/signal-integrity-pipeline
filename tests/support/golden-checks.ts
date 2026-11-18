@@ -1,25 +1,10 @@
 // Shared helpers for the golden known-answer checks (docs/golden-checks.md). They only measure;
 // every expected value and tolerance lives beside its check, with its source.
 import { accessSync, constants } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
-import type { TestContext } from 'node:test'
 import { createNativeSolver } from '../../src/adapters'
 
-/** Local vendor IBIS bytes are never committed: skip cleanly unless IBIS_MODEL_DIR holds `file`. */
-export async function vendorText(context: TestContext, file: string): Promise<string | undefined> {
-  if (!process.env.IBIS_MODEL_DIR) {
-    context.skip(`Set IBIS_MODEL_DIR to local vendor ${file}; vendor bytes are not committed`)
-    return
-  }
-  try {
-    return await readFile(join(process.env.IBIS_MODEL_DIR, file), 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    context.skip(`Local vendor ${file} is unavailable`)
-    return
-  }
-}
+export { vendorText } from './vendor-models'
 
 /**
  * Eigenvalues of a real symmetric matrix, ascending, by cyclic Jacobi rotations

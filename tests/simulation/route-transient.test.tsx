@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RouteTransientSolver, type RoutedDeck } from '../../src/simulation'
 import { routedRequest } from '../../src/simulation/route-transient'

@@ -1,7 +1,7 @@
 import { simulation } from '@tscircuit/core'
 import type { SimulationPcbDriverReceiverChannel } from '../../src/board'
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { prepareBlocks, renderSignals } from '../support/signal-render'
@@ -45,7 +45,7 @@ function Board({ missing = false, via = false, branch = false, unlisted = false,
   </board>
 }
 
-test('full unrouted check reaches the segment after a series passive', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('full unrouted check reaches the segment after a series passive', async () => {
   await assert.rejects(renderSignals(<Board missing />), /is not routed between/)
   // Render the same physical gap under the explicit ideal policy, then test admission of saved Circuit JSON under error.
   const circuit = await renderSignals(<Board missing allowUnroutedTraces />, ['pcb_trace_missing_error', 'pcb_port_not_connected_error'])
@@ -61,7 +61,7 @@ test('full unrouted check reaches the segment after a series passive', { skip: !
   assert.equal(prepared.settings.lanes.length, 1, 'only the routed segment before RS is a physical lane')
 })
 
-test('routed receiver arrays get the RFC not-implemented diagnostic', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('routed receiver arrays get the RFC not-implemented diagnostic', async () => {
   const circuit = await renderSignals(<Board branch />)
   const ibis = await sources()
   assert.throws(() => prepareBlocks({ circuit, sources: ibis }), /branched routed graphs are not implemented yet/)
@@ -101,7 +101,7 @@ test('core plans PRBS seeds across blocks, preserves an explicit seed and emits 
   assert.equal(eye?.end_time_ms, 40e-6)
 })
 
-test('unlisted output-only models drive a steady physical low; D81 receives a legal planned seed', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('unlisted output-only models drive a steady physical low; D81 receives a legal planned seed', async () => {
   const circuit = await renderSignals(<Board unlisted />)
   const prepared = prepareBlocks({ circuit, sources: await sources() })[0]
   assert.equal(prepared.signals[0].seed, 127)
@@ -111,7 +111,7 @@ test('unlisted output-only models drive a steady physical low; D81 receives a le
   assert.equal(stimuli.find(stimulus => stimulus.source_port_id === extra.port)?.transmission_pattern.bits, '0')
 })
 
-test('TSX vias use core preset plating, and routed vias require an explicit stackup thickness', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('TSX vias use core preset plating, and routed vias require an explicit stackup thickness', async () => {
   const circuit = await renderSignals(<Board via />)
   const ibis = await sources()
   const stack = circuit.find(record => record.type === 'pcb_stackup')!
@@ -155,7 +155,7 @@ test('the removed modeling API cannot supply a test or synthesize a block', () =
   assert.deepEqual(signalBlocks([]), [])
 })
 
-test('explicit duration survives the milliseconds conversion and automatic duration stays absent in source', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('explicit duration survives the milliseconds conversion and automatic duration stays absent in source', async () => {
   const automatic = await renderSignals(<Board />)
   const ibis = await sources()
   assert.equal(automatic.find(record => record.type === 'simulation_pcb_transient_channel_simulation')?.duration_ms, undefined)
@@ -167,7 +167,7 @@ test('explicit duration survives the milliseconds conversion and automatic durat
   assert.ok(Math.abs((prepared.block.duration_ms ?? NaN) - 1e-6) <= Number.EPSILON * 1e-6)
 })
 
-test('numeric TSX offsets are seconds, with startup added before the finite capture', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('numeric TSX offsets are seconds, with startup added before the finite capture', async () => {
   const [prepared] = prepareBlocks({ circuit: await renderSignals(<Board offset={.5} />), sources: await sources() })
   assert.equal(prepared.signals[0].offset_ms, 500)
   assert.ok(Math.abs(prepared.duration - (.5 + 144 / 20e6)) < 1e-15)

@@ -1,12 +1,13 @@
-import test from 'node:test'
+import { vendorAvailable } from '../support/vendor-models'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { RoutedAdmissionSolver, RoutedStageSolver } from '../../src/pipeline'
 import { RouteSectionsSolver } from '../../src/board'
 import { RouteBindingsSolver, type RouteBindingsInput, type RoutedBindings } from '../../src/simulation'
 import { routedProblem } from '../support/routed-fixture'
 
-test('bindings compile one buffer per step and freeze the fully allocated node map', async (context) => {
-  const input = await routedProblem(context)
+test.skipIf(!vendorAvailable('sn74lvc1g04.ibs'))('bindings compile one buffer per step and freeze the fully allocated node map', async () => {
+  const input = await routedProblem()
   if (!input) return
   const admission = new RoutedAdmissionSolver(input)
   admission.solve()

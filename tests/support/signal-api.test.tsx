@@ -1,6 +1,6 @@
 import { simulation } from '@tscircuit/core'
 import React from 'react'
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { admittedBindings, prepareBlocks, renderSignals } from './signal-render'
@@ -39,7 +39,7 @@ test('Real core renders source records and core-owned stackup without loading ve
   }
 })
 
-test('four-conductor derivation is invariant under signal record order', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('four-conductor derivation is invariant under signal record order', async () => {
   const circuit = await renderSignals(<Four />)
   const ibis = await sources()
   const a = prepareBlocks({ circuit, sources: ibis })[0]
@@ -48,7 +48,7 @@ test('four-conductor derivation is invariant under signal record order', { skip:
   assert.deepEqual(a.settings, b.settings)
 })
 
-test('RS485 differential identity and the placed termination are derived from real vendor data and TSX', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('RS485 differential identity and the placed termination are derived from real vendor data and TSX', async () => {
   const circuit = await renderSignals(<Differential />)
   const ibis = await sources()
   const prepared = prepareBlocks({ circuit, sources: ibis })[0]
@@ -61,7 +61,7 @@ test('RS485 differential identity and the placed termination are derived from re
   assert.throws(() => prepareBlocks({ circuit: reversed, sources: ibis }), /Signal "BUS": differential pin order disagrees with IBIS/)
 })
 
-test('signal packages and vendor reference evidence remain present; disabled drivers reject output-only buffers', { skip: !modelDir }, async () => {
+test.skipIf(!modelDir)('signal packages and vendor reference evidence remain present; disabled drivers reject output-only buffers', async () => {
   const circuit = await renderSignals(<Single />)
   const signal = circuit.find(r => r.type === 'simulation_pcb_driver_receiver_channel')!
   if (signal.type !== 'simulation_pcb_driver_receiver_channel') throw new Error('missing signal')

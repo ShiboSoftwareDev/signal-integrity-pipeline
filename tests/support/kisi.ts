@@ -40,9 +40,9 @@ export async function verifyKisi(): Promise<void> {
     bytes = await readFile(kisiCli)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    throw new Error('Missing Kisi CLI; run pnpm kisi:setup before pnpm test:kisi')
+    throw new Error('Missing Kisi CLI; run bun run kisi:setup before bun run test:kisi')
   }
-  if (createHash('sha256').update(bytes).digest('hex') !== release.sha256) throw new Error('Cached Kisi SHA-256 mismatch; remove .cache/kisi/kisi.mjs and run pnpm kisi:setup')
+  if (createHash('sha256').update(bytes).digest('hex') !== release.sha256) throw new Error('Cached Kisi SHA-256 mismatch; remove .cache/kisi/kisi.mjs and run bun run kisi:setup')
 }
 
 /** Explicit developer setup: download and verify the release, or verify the cached copy. */
@@ -76,13 +76,13 @@ export async function runKisi(coupon: KisiCoupon): Promise<z.infer<typeof kisiRe
   const started = performance.now()
   let result: { stdout: string; stderr: string }
   try {
-    result = await execute(process.execPath, args, { timeout: 120_000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, KISI_THREADS: '1', KISI_CACHE: join(kisiDirectory, 'field', release.sha256) } })
+    result = await execute('node', args, { timeout: 120_000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, KISI_THREADS: '1', KISI_CACHE: join(kisiDirectory, 'field', release.sha256) } })
   } catch (error) {
     await writeFile(join(directory, 'kisi.log'), String(error))
     if (error instanceof Error && 'stdout' in error && typeof error.stdout === 'string') await writeFile(join(directory, 'kisi.json'), error.stdout)
     throw error
   } finally {
-    await writeFile(join(directory, 'invocation.json'), JSON.stringify({ version: release.version, sha256: release.sha256, args, durationMs: performance.now() - started }, null, 2))
+    await writeFile(join(directory, 'invocation.json'), JSON.stringify({ executable: 'node', version: release.version, sha256: release.sha256, args, durationMs: performance.now() - started }, null, 2))
   }
   await writeFile(join(directory, 'kisi.json'), result.stdout)
   await writeFile(join(directory, 'kisi.log'), result.stderr)
