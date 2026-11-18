@@ -1,9 +1,19 @@
 export type { SimulationPcbDriverReceiverChannel, SimulationPcbTransientChannelSimulation, SignalEndpoint } from 'circuit-json'
 import type { SignalEndpoint, SimulationPcbDriverReceiverChannel } from 'circuit-json'
 
+/** Check whether a nonempty literal pattern repeats a single bit. */
+function isConstantBitPattern(pattern: string): boolean {
+  const first = pattern[0]
+  if (first !== '0' && first !== '1') return false
+  for (const bit of pattern) {
+    if (bit !== first) return false
+  }
+  return true
+}
+
 /** Constant literal patterns and disabled drivers record quiet-channel idle voltages. */
 export function isQuiet(signal: SimulationPcbDriverReceiverChannel): boolean {
-  return !!signal.driver_disabled || /^(?:0+|1+)$/.test(signal.pattern)
+  return signal.driver_disabled === true || isConstantBitPattern(signal.pattern)
 }
 
 /** The physical ports of a signal endpoint, excluding optional IBIS model names. */

@@ -16,12 +16,35 @@ export function referenceVoltages(buffer: IbisBuffer): Record<'pullup' | 'pulldo
     return [role, voltage]
   })) as ReturnType<typeof referenceVoltages>
 }
+/** Index after the ASCII digits starting at the given offset. */
+function ibisDigitsEnd(text: string, start: number): number {
+  while (start < text.length && text[start] >= '0' && text[start] <= '9') start++
+  return start
+}
+
+/** Skip an optional numeric sign. */
+function skipIbisSign(text: string, start: number): number {
+  if (text[start] === '+' || text[start] === '-') return start + 1
+  return start
+}
+
 /** Parse a numeric IBIS token, including vendor unit suffixes. */
 export function ibisNumber(token: string): number {
-  const match = /^([+-]?(?:\d*\.)?\d+(?:[eE][+-]?\d+)?)([TGMkmunpf]?)/.exec(token)
-  if (!match) throw new Error(`Missing numeric IBIS value: ${token}`)
-  const scales: Record<string, number> = { '': 1, T: 1e12, G: 1e9, M: 1e6, k: 1e3, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15 }
-  return Number(match[1]) * scales[match[2]]
+  const text = String(token)
+  const start = skipIbisSign(text, 0)
+  let end = ibisDigitsEnd(text, start)
+  if (text[end] === '.') {
+    const fractionEnd = ibisDigitsEnd(text, end + 1)
+    if (fractionEnd > end + 1) end = fractionEnd
+  }
+  if (end === start) throw new Error(`Missing numeric IBIS value: ${token}`)
+  if (text[end] === 'e' || text[end] === 'E') {
+    const exponentStart = skipIbisSign(text, end + 1)
+    const exponentEnd = ibisDigitsEnd(text, exponentStart)
+    if (exponentEnd > exponentStart) end = exponentEnd
+  }
+  const scales: Record<string, number> = { T: 1e12, G: 1e9, M: 1e6, k: 1e3, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15 }
+  return Number(text.slice(0, end)) * (scales[text[end]] ?? 1)
 }
 /** Resolve a vendor rail by [Pin Mapping], or a unique POWER/GND pin. */
 function referenceRail({ model, component, pin, port }: Pick<InspectedPin, 'model' | 'component' | 'pin' | 'port'>, role: 'ground' | 'power'): string {
@@ -61,7 +84,7 @@ export function inspectPins(circuit: CircuitJson, sources: IbisSources): Map<Sou
     for (const [pin, port] of Object.entries(mapping)) {
       const physical = component.pins[pin]
       if (!physical) throw new Error(`${port}: physical IBIS pin ${pin} is missing`)
-      if (/^(power|gnd|nc)$/i.test(physical.model)) continue
+      if (['power', 'gnd', 'nc'].includes(physical.model.toLowerCase())) continue
       const choices = document.selectors[physical.model] ?? [physical.model]
       let name = model.ibis_pin_name_to_model_name?.[pin]
       if (name == null && choices.length === 1) name = choices[0]
@@ -72,12 +95,47 @@ export function inspectPins(circuit: CircuitJson, sources: IbisSources): Map<Sou
   }
   return pins
 }
+/** Index after the whitespace starting at the given offset. */
+function skipIbisWhitespace(text: string, start: number): number {
+  while (text[start]?.trim() === '') start++
+  return start
+}
+
+/** Index after the non-whitespace token starting at the given offset. */
+function ibisTokenEnd(text: string, start: number): number {
+  while (start < text.length && text[start].trim() !== '') start++
+  return start
+}
+
+/** Yield model bodies between line-start [Model] headers and their separating whitespace. */
+function* ibisModelSections(text: string): Generator<string> {
+  const keyword = '[model]'
+  let sectionStart: number | undefined
+  for (let start = 0; start < text.length; start++) {
+    if (start > 0 && !'\r\n\u2028\u2029'.includes(text[start - 1])) continue
+    const header = skipIbisWhitespace(text, start)
+    const keywordEnd = header + keyword.length
+    if (text.slice(header, keywordEnd).toLowerCase() !== keyword || text[keywordEnd]?.trim() !== '') {
+      start = header
+      continue
+    }
+    if (sectionStart !== undefined) yield text.slice(sectionStart, start)
+    sectionStart = skipIbisWhitespace(text, keywordEnd)
+    start = sectionStart - 1
+  }
+  if (sectionStart !== undefined) yield text.slice(sectionStart)
+}
+
 /** Exact [Model] body, retaining vendor waveform and ramp subsections. */
 export function modelText(pin: InspectedPin): string {
-  const sections = pin.text.split(/^\s*\[Model\]\s+/gmi).slice(1)
-  const section = sections.find(s => s.split(/\s/)[0].toLowerCase() === pin.buffer.name.toLowerCase())
-  if (!section) throw new Error(`IBIS model body ${pin.buffer.name} missing`)
-  return section
+  const modelName = pin.buffer.name.toLowerCase()
+  for (const section of ibisModelSections(pin.text)) {
+    const name = section.slice(0, ibisTokenEnd(section, 0)).toLowerCase()
+    if (name !== modelName) continue
+    if (section) return section
+    break
+  }
+  throw new Error(`IBIS model body ${pin.buffer.name} missing`)
 }
 /** First interpolated crossing of a measured edge voltage. */
 function edgeCrossing(samples: readonly (readonly [number, number])[], target: number): number | undefined {
@@ -87,6 +145,16 @@ function edgeCrossing(samples: readonly (readonly [number, number])[], target: n
     if ((a[1] - target) * (b[1] - target) <= 0 && a[1] !== b[1]) return a[0] + (target - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
   }
   return undefined
+}
+
+/** Read the first dV/dt value from a rising or falling IBIS ramp row. */
+function rampRatioToken(line: string): string | undefined {
+  const start = skipIbisWhitespace(line, 0)
+  const tag = line.slice(start, start + 'dv/dt_r'.length).toLowerCase()
+  if (tag !== 'dv/dt_r' && tag !== 'dv/dt_f') return undefined
+  const valueStart = skipIbisWhitespace(line, ibisTokenEnd(line, start))
+  if (valueStart === line.length) return undefined
+  return line.slice(valueStart, ibisTokenEnd(line, valueStart))
 }
 
 /** Fastest measured 10–90% output edge at the typical corner, or the [Ramp] dV/dt. */
@@ -103,8 +171,8 @@ export function edgeSeconds(pin: InspectedPin): number {
     if (a !== undefined && b !== undefined && b > a) edges.push(b - a)
   }
   if (!edges.length) {
-    for (const line of modelText(pin).split(/\r?\n/).filter(line => /^\s*dV\/dt_[rf]/i.test(line))) {
-      const token = line.trim().split(/\s+/)[1]
+    for (const line of modelText(pin).replaceAll('\r\n', '\n').split('\n')) {
+      const token = rampRatioToken(line)
       if (!token || token === 'NA') continue
       const [dv, dt] = token.split('/')
       const edge = ibisNumber(dt) * .8 * pin.buffer.voltage[0]! / ibisNumber(dv)

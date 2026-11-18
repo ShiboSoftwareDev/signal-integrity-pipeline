@@ -25,23 +25,35 @@ export function endpointPorts(endpoint: SignalEndpoint): string[] {
   return [endpoint.p_source_port_id, endpoint.n_source_port_id]
 }
 
-const prbsTaps = new Map([[7, 6], [15, 14], [31, 28]])
+const prbsPatterns = new Map([
+  ['prbs7', { width: 7, tap: 6 }],
+  ['prbs15', { width: 15, tap: 14 }],
+  ['prbs31', { width: 31, tap: 28 }],
+])
+
+/** Check for a nonempty string of literal binary digits. */
+function isBitPattern(pattern: string): boolean {
+  if (pattern.length === 0) return false
+  for (const bit of pattern) {
+    if (bit !== '0' && bit !== '1') return false
+  }
+  return true
+}
 
 /** Seeded PRBS generation bounded by the actual requested recording; never allocate a full PRBS31 period. */
 export function signalBits(signal: SimulationPcbDriverReceiverChannel, duration: number): string {
-  const order = /^prbs(7|15|31)$/.exec(signal.pattern)
-  const width = Number(order?.[1])
-  const mask = 2 ** width - 1
-  if (order && (!Number.isInteger(signal.seed) || signal.seed! < 1 || signal.seed! > mask)) throw new Error(`Signal "${signal.name}": ${signal.pattern} seed must be an integer in 1..${mask}.`)
+  const prbs = prbsPatterns.get(signal.pattern)
+  const mask = prbs ? 2 ** prbs.width - 1 : 0
+  if (prbs && (!Number.isInteger(signal.seed) || signal.seed! < 1 || signal.seed! > mask)) throw new Error(`Signal "${signal.name}": ${signal.pattern} seed must be an integer in 1..${mask}.`)
   if (signal.driver_disabled) return '0'
   if (signal.pattern === 'clock') return '01'
-  if (!order) {
-    if (!/^[01]+$/.test(signal.pattern)) throw new Error(`${signal.name}: pattern must be PRBS, clock, or a literal bit string`)
+  if (!prbs) {
+    if (!isBitPattern(signal.pattern)) throw new Error(`${signal.name}: pattern must be PRBS, clock, or a literal bit string`)
     return signal.pattern
   }
   let state = signal.seed!
   const count = Math.min(mask, Math.ceil(Math.max(0, duration - signal.offset_ms / 1000) * signal.bit_rate_bps) + 1)
-  const tap = prbsTaps.get(width)!
+  const { width, tap } = prbs
   let bits = ''
   for (let i = 0; i < count; i++) {
     bits += String((state >>> (width - 1)) & 1)
@@ -265,7 +277,7 @@ function prepareBlock({ input, block, sources, warnings, distanceMm }: {
   for (const pin of pins.values()) {
     const signal = driven.get(pin.port)
     const capabilities = pinCapabilities(pin)
-    const output = !!signal || !capabilities.receive
+    const output = signal !== undefined || !capabilities.receive
     let enabled = capabilities.drive && !capabilities.disable && !capabilities.receive
     if (signal) enabled = !signal.driver_disabled
     const state: RunControls['states'][number] = { source_port_id: pin.port, is_output: output }
