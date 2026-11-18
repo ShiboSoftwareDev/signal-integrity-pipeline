@@ -1,29 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { RoutedAdmissionSolver } from '../../src/pipeline'
-import { RouteSectionsSolver } from '../../src/board'
-import { RouteFieldsSolver } from '../../src/extraction'
-import { RouteBindingsSolver, RouteNetworkSolver } from '../../src/simulation'
+import { RoutedPipelineSolver } from '../../src/pipeline'
+import { RouteNetworkSolver } from '../../src/simulation'
 import { routedProblem } from '../support/routed-fixture'
 
 test('network owns real ladder node samples, complete probe evidence and the executable deck', async (context) => {
   const input = await routedProblem(context)
   if (!input) return
-
-  const admission = new RoutedAdmissionSolver(input)
-  admission.solve()
-  const plan = admission.getOutput().value[0]
-  const sections = new RouteSectionsSolver(plan.sections)
-  sections.solve()
-  const { geometry, circuitJson, scope, maskThicknessMm } = sections.getOutput().value
-  const fields = new RouteFieldsSolver({ geometry, circuitJson, scope, maskThicknessMm, materials: plan.bindings.options.materials, artifactPrefix: plan.sections.artifactPrefix })
-  fields.solve()
-  const extracted = fields.getOutput().value
-  const bindings = new RouteBindingsSolver({ ...plan.bindings, scope })
-  bindings.solve()
-  const network = new RouteNetworkSolver({ blockId: plan.id, name: plan.name, geometry, extracted, bindings: bindings.getOutput().value, materials: extracted.materials, options: plan.bindings.options, warnings: plan.warnings, artifactPrefix: plan.sections.artifactPrefix })
-  network.solve()
-  const output = network.getOutput().value
+  const port = { progress: (): void => undefined, runSolver: async (): Promise<never> => {
+    throw new Error('network test must not run ngspice')
+  } }
+  const root = new RoutedPipelineSolver(input, port)
+  root.solveUntilStage('RouteTransientSolver')
+  const network = root.getSolver(RouteNetworkSolver.name)!
+  const output = root.stageOutput('RouteNetworkSolver').value[0]
   assert.ok(network.iterations >= 3)
   assert.ok(output.evidence.cells)
   assert.ok(output.evidence.maximum_cell_delay_s)
