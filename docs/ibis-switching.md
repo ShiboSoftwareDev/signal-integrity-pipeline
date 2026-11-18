@@ -168,10 +168,7 @@ the tail-hold effect against the same untrimmed IBIS model, not against silicon
 or a transistor-level reference. Local details are in ignored
 `runs/check-buffer-only.ts` and `runs/ddr3-buffer-only.json`.
 
-After building the sibling core, run the documented DDR3 diagnostic in
-[coupled-package-model.md](coupled-package-model.md). It records source hashes,
-waveform/ramp inspection and the production capacitance warning. The cropped
-board now stops at declare on its nearby VDDQ rail copper under the explicit copper
-scope; its driver fixture and switching tests remain independent of that
-geometry limit. Native solver calls remain zero. No later board stage passage
-is claimed.
+The DDR3 diagnostic recorded source hashes, waveform and ramp inspection, and
+the package capacitance warning. That run stopped at declaration on the cropped
+board's nearby VDDQ rail copper, before invoking a native solver. See the current
+[DDR3 admission evidence](coupled-package-model.md).

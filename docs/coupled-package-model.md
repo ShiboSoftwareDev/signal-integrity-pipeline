@@ -152,15 +152,13 @@ their existing scalar package behavior.
 
 ## DDR3 admission evidence and remaining blockers
 
-Core checks declarations, pin/model binding, roles, differential identity and
-routing. It no longer rejects Package Model or parses numerical package data.
-Channel receiver model overrides survive the additional on-net pin scan.
-The pipeline owns package parsing, validation and realization.
+Core renders the IBIS asset references and checks pin connectivity and routing.
+The pipeline reads the assets and validates model roles, disabled-driver support,
+differential pin identity and coupled package matrices. It uses channel receiver
+model overrides when checking the selected pins.
 
 ```sh
-# Build the sibling core with its package.json build script first: bun run build
 IBIS_MODEL_DIR=models TSX_TSCONFIG_PATH=examples/tsconfig.json \
-SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js" \
 node --import tsx scripts/check-ddr3.tsx
 ```
 

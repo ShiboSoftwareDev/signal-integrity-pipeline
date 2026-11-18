@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { simulation } from '@tscircuit/core'
 import React from 'react'
 import test from 'node:test'
@@ -33,7 +32,7 @@ function Four(): React.JSX.Element {
   </board>
 }
 
-test('Real core renders source records and core-owned stackup for unit boards', { skip: (!existsSync(`${process.env.IBIS_MODEL_DIR ?? 'models'}/sn74lvc1g04.ibs`) || !existsSync(`${process.env.IBIS_MODEL_DIR ?? 'models'}/sn65hvd72.ibs`)) && 'Local vendor IBIS assets are unavailable; vendor bytes are not committed' }, async () => {
+test('Real core renders source records and core-owned stackup without loading vendor assets', async () => {
   for (const Board of [Single, Differential, Four]) {
     const records = await renderSignals(<Board />)
     assert.equal(records.filter(r => r.type === 'pcb_stackup').length, 1)
@@ -64,6 +63,8 @@ test('RS485 differential identity and the placed termination are derived from re
   if (!('p_source_port_id' in receiver)) return
   const resistor = circuit.filter(r => r.type === 'source_component').find(r => r.name === 'RTERM')!
   assert.ok(prepared.settings.passiveComponents?.some(p => p.sourceComponentId === resistor.source_component_id))
+  const reversed = await renderSignals(<Differential reversed />)
+  assert.throws(() => prepareBlocks(reversed, ibis), /Signal "BUS": differential pin order disagrees with IBIS/)
 })
 
 test('signal packages and vendor reference evidence remain present; disabled drivers reject output-only buffers', { skip: !modelDir }, async () => {

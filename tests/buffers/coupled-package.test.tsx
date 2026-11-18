@@ -12,7 +12,7 @@ import { addrCmdPins } from '../../examples/routed/ddr3-signals'
 import { energyFacts, maxwellFacts, vendorText } from '../support/golden-checks'
 
 test('TSX coupled package replaces scalar values, preserves ideal die rails and realizes signed R/L/C', async () => {
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async () => new Response(source) } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<Board />)
   await circuit.renderUntilSettled()
   const model = circuit.getCircuitJson().find(record => record.type === 'simulation_ibis_model')!

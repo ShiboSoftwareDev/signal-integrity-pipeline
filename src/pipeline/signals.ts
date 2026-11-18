@@ -1,11 +1,10 @@
 import { isQuiet, channelCopperScope, connectedSourceIds, stackupFromCircuitJson, type CircuitJson, type SignalEndpoint, type SimulationPcbDriverReceiverChannel, type SimulationPcbTransientChannelSimulation } from '../board'
-import { inspectPins, edgeSeconds, referenceVoltages, coupledPackage, packageCapacitanceWarnings, type InspectedPin, type IbisSources } from '../buffers'
+import { inspectPins, edgeSeconds, referenceVoltages, coupledPackage, packageCapacitanceWarnings, pinCapabilities, type InspectedPin, type IbisSources } from '../buffers'
 import { safeId, sha256 } from '../kernel'
 import type { RunControls } from '../simulation'
 import type { NumericalSettings } from './modeling'
 import { signalTopology, validateSignalGraph } from './topology'
 import { compareNames, recordingTime } from './timing'
-import { pinCapabilities } from '../buffers'
 
 export interface PreparedBlock {
   duration: number; topology: Map<string, Set<string>>;
@@ -135,7 +134,7 @@ function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSi
       const pin = pins.get(port)
       if (!pin) throw new Error(`Signal "${signal.name}" driver ${port} has no <simulation.ibismodel>.`)
       const capabilities = pinCapabilities(pin)
-      if (!capabilities.drive) throw new Error(`${port}: selected model does not support driving on this pin.`)
+      if (!capabilities.drive) throw new Error(`Signal "${signal.name}": selected IBIS model "${pin.buffer.name}" does not support driving on ${port}.`)
       if (signal.driver_disabled && !capabilities.disable) throw new Error(`Signal "${signal.name}": ${port} model ${pin.buffer.name} has no disabled state; use pattern="0" or "1".`)
       driven.set(port, signal)
       edges.push(edgeSeconds(pin))
@@ -148,8 +147,9 @@ function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSi
     for (const receiver of signal.receivers) {
       if (('source_port_id' in receiver) !== ('source_port_id' in signal.driver)) throw new Error(`${signal.name}: driver and receiver must use the same endpoint shape`)
       for (const [index, port] of endpointPorts(receiver).entries()) {
-        if (!pins.has(port)) throw new Error(`Signal "${signal.name}" receiver ${port} has no <simulation.ibismodel>.`)
-        if (!pinCapabilities(pins.get(port)!).receive) throw new Error(`${port}: selected model does not support receiving on this pin.`)
+        const pin = pins.get(port)
+        if (!pin) throw new Error(`Signal "${signal.name}" receiver ${port} has no <simulation.ibismodel>.`)
+        if (!pinCapabilities(pin).receive) throw new Error(`Signal "${signal.name}": selected IBIS model "${pin.buffer.name}" does not support receiving on ${port}.`)
         if (!signalTopology(circuit, drivers[index], rails).has(port)) throw new Error(`Receiver ${port} is not connected to the copper of signal "${signal.name}".`)
       }
     }
@@ -160,6 +160,10 @@ function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSi
       if (!pair) throw new Error(`Signal "${signal.name}": differential pin order disagrees with IBIS [Diff_pin]; swap p and n or repair the model mapping.`)
       // The vendor's model Polarity is already applied by the converter.
     }
+  }
+  for (const [port, name] of topology) {
+    const pin = pins.get(port)
+    if (pin && !driven.has(port) && pin.buffer.type === 'output') throw new Error(`Signal "${name}" has two drivers: the listed driver and ${port} (IBIS model "${pin.buffer.name}"). Exactly one pin drives a signal.`)
   }
   validateSignalGraph(circuit, signals, rails, block.allow_unrouted_traces)
   const edge = Math.min(...edges)
@@ -247,7 +251,6 @@ function prepareBlock(input: CircuitJson, block: SimulationPcbTransientChannelSi
     const capabilities = pinCapabilities(pin)
     const output = !!signal || !capabilities.receive
     const enabled = signal ? !signal.driver_disabled : capabilities.drive && !capabilities.disable && !capabilities.receive
-    if (!signal && enabled && topology.has(pin.port)) throw new Error(`Signal "${topology.get(pin.port)}" has two drivers: the listed driver and ${pin.port}. Exactly one pin drives a signal.`)
     controls.states.push({ source_port_id: pin.port, is_output: output, ...(output ? { is_output_enabled: enabled } : {}) })
     if (!signal && enabled) controls.stimuli.push({ name: pin.port, source_port_id: pin.port,
       bit_duration_ms: 1000 / rate, start_time_ms: 0, initial_state: 0, inverted: pin.buffer.polarity === 'inverting', transmission_pattern: { transmission_type: 'bits', bits: '0', repeat: true } })

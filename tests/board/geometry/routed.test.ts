@@ -214,9 +214,9 @@ test('a board-level via in the pad of a part inside a nested subcircuit is a dir
   assert.throws(() => geometryFromCircuitJson(nestedVias, nativeModeling), /ground_connection/)
 })
 
-test('real core escape vias at the end of ground routes reach the opposite-layer plane', { skip: !process.env.SI_CORE_MODULE }, async () => {
+test('real core escape vias at the end of ground routes reach the opposite-layer plane', async () => {
   const circuit = await renderCoreSignals(React.createElement(EscapeViaPlane))
-  const settings = { ...nativeModeling, viaPlatingMm: .018,
+  const settings = { ...nativeModeling, viaPlatingMm: circuit.find(record => record.type === 'pcb_stackup')?.plated_hole_copper_thickness,
     lanes: [{ port: 'DATA', from: { component: 'TX', port: 'Y' }, to: { component: 'RX', port: 'A' } }] }
   assert.equal(circuit.filter(record => record.type === 'pcb_copper_pour').length, 1)
   assert.equal(circuit.filter(record => record.type === 'pcb_via').length, 2)

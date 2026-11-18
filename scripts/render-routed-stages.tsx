@@ -95,7 +95,7 @@ async function stages(name: string, input: RoutedProblem): Promise<void> {
 }
 
 const twoSource = await readFile(join(models, 'sn74lvc1g04.ibs'), 'utf8')
-const core = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async () => new Response(twoSource) } })
+const core = new Circuit({ platform: { partsEngineDisabled: true } })
 core.add(<TwoTraceBoard />)
 await core.renderUntilSettled()
 await stages('two-trace', { circuitJson: core.getCircuitJson() as CircuitJson, ibisSources: { 'models/sn74lvc1g04.ibs': twoSource }, scopeDistanceMm: 1 })
@@ -105,7 +105,7 @@ if (process.env.SI_DDR3_BOARD) {
   const ibisSources = Object.fromEntries(
     await Promise.all(['sprm552c.ibs', 'W631GG6MB-12.ibs'].map(async (name) => [`models/${name}`, await readFile(join(models, name), 'utf8')])),
   )
-  const circuitJson = await withDdr3Signals(physical, ibisSources, { block: 'DDR3_ADDR_CMD' })
+  const circuitJson = await withDdr3Signals(physical, { block: 'DDR3_ADDR_CMD' })
   await stages('ddr3-addr-cmd', { circuitJson, ibisSources, scopeDistanceMm: 1 })
 } else {
   console.log('DDR3 board JSON unavailable: set SI_DDR3_BOARD and local sprm552c.ibs / W631GG6MB-12.ibs to render its 24-net addr/cmd scope')

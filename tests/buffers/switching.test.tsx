@@ -49,7 +49,7 @@ ${(['rising', 'falling'] as const).flatMap(kind => [0, 1.5].map(voltage =>
 [End]`
 
 test('TSX 800 Mbps driver accepts a settled acquisition tail longer than its 1.25 ns bit', async () => {
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async () => new Response(source) } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<board width={10} height={5} routingDisabled schematicDisabled>
     <chip name="U1" pinLabels={{ 1: 'DQ', 2: 'VDD', 3: 'VSS' }} footprint="sot23" />
     <pcbnotetext text="800 Mbps: 0.8 ns edge, 4 ns acquisition" pcbX={0} pcbY={2} />

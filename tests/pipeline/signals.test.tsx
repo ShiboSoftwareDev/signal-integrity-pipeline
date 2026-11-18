@@ -8,12 +8,14 @@ import { renderSignals } from '../support/signal-render'
 import { prepareBlocks, signalBits, endpointPorts } from '../../src/pipeline/signals'
 import { geometryFromCircuitJson } from '../../src/board'
 import { Inverter, Reference } from '../support/signal-parts'
+import { routedVisualIbis } from '../support/routed-visual-fixture'
+import { TwoTraceBoard } from '../../examples/routed/two-trace-board'
 
 const modelDir = process.env.IBIS_MODEL_DIR
 /** Real vendor bytes, never an invented model. */
 const sources = async (): Promise<Record<string, Uint8Array>> => ({ 'models/sn74lvc1g04.ibs': await readFile(`${modelDir}/sn74lvc1g04.ibs`) })
 /** Regression boards stay ordinary TSX, including the deliberately incomplete route after RS. */
-function Board({ missing = false, via = false, branch = false, sameEnd = false, unlisted = false, offset = 0, duration, allowUnroutedTraces = false }: { missing?: boolean; via?: boolean; branch?: boolean; sameEnd?: boolean; unlisted?: boolean; offset?: number; duration?: number; allowUnroutedTraces?: boolean }): React.JSX.Element {
+function Board({ missing = false, via = false, branch = false, sameEnd = false, unlisted = false, extraDriver = false, driverDisabled = false, offset = 0, duration, allowUnroutedTraces = false }: { missing?: boolean; via?: boolean; branch?: boolean; sameEnd?: boolean; unlisted?: boolean; extraDriver?: boolean; driverDisabled?: boolean; offset?: number; duration?: number; allowUnroutedTraces?: boolean }): React.JSX.Element {
   return <board width={18} height={12} layers={4} thickness={1.6} fabricatorPreset="jlcpcb_standard" routeRemaining={false} schematicDisabled isViaInPadAllowed allowBlindAndBuriedVias>
     <Inverter name="TX" x={-5} y={0} driver /><Inverter name="RX" x={5} y={0} driver={false} groundX={sameEnd ? -8 : 0} />
     <Reference />
@@ -34,8 +36,12 @@ function Board({ missing = false, via = false, branch = false, sameEnd = false, 
       <Inverter name="TX1" x={-5} y={1} driver /><Inverter name="RX1" x={5} y={1} driver={false} />
       <trace from={branch ? '.TX > .Y' : '.TX1 > .Y'} to=".RX1 > .A" width={.2} pcbPath={branch ? ['.TX > .Y', { x: 5, y: 1 }, '.RX1 > .A'] : ['.TX1 > .Y', '.RX1 > .A']} />
     </>}
+    {extraDriver && <>
+      <Inverter name="TX1" x={-5} y={1} driver />
+      <trace from=".TX > .Y" to=".TX1 > .Y" width={.2} pcbPath={['.TX > .Y', '.TX1 > .Y']} />
+    </>}
     <simulation.pcbtransientchannelsimulation bitRate="20Mbps" duration={duration} allowUnroutedTraces={allowUnroutedTraces}>
-      <simulation.pcbdriverreceiverchannel offset={offset} name="D81" driverRef=".TX > .Y" receiverRef={branch ? ['.RX > .A', '.RX1 > .A'] : '.RX > .A'} />
+      <simulation.pcbdriverreceiverchannel offset={offset} name="D81" driverDisabled={driverDisabled} driverRef=".TX > .Y" receiverRef={branch ? ['.RX > .A', '.RX1 > .A'] : '.RX > .A'} />
     </simulation.pcbtransientchannelsimulation>
   </board>
 }
@@ -66,6 +72,40 @@ test('routed receiver arrays get the RFC not-implemented diagnostic', { skip: !m
   const circuit = await renderSignals(<Board branch />)
   const ibis = await sources()
   assert.throws(() => prepareBlocks(circuit, ibis), /branched routed graphs are not implemented yet/)
+})
+
+test('pipeline checks selected IBIS roles and disabled states after TSX rendering', async () => {
+  const circuit = await renderSignals(<Board />)
+  const disabled = await renderSignals(<Board driverDisabled />)
+  const file = 'models/sn74lvc1g04.ibs'
+  assert.throws(() => prepareBlocks(circuit, { [file]: routedVisualIbis.replace('Model_type Output', 'Model_type Input') }), /Signal "D81".*LVC1G04_OUT_33.*does not support driving/)
+  assert.throws(() => prepareBlocks(circuit, { [file]: routedVisualIbis.replace('Model_type Input', 'Model_type Output') }), /Signal "D81".*LVC1G04_IN_33.*does not support receiving/)
+  assert.throws(() => prepareBlocks(disabled, { [file]: routedVisualIbis }), /Signal "D81".*LVC1G04_OUT_33.*has no disabled state/)
+})
+
+test('an unlisted output on the same net is diagnosed before routed branch checks', async () => {
+  const circuit = await renderSignals(<Board extraDriver />)
+  assert.throws(() => prepareBlocks(circuit, { 'models/sn74lvc1g04.ibs': routedVisualIbis }), /Signal "D81" has two drivers/)
+})
+
+test('core plans PRBS seeds across blocks, preserves an explicit seed and emits an eye window in milliseconds', async () => {
+  const board = TwoTraceBoard({ 'data-pattern': 'prbs7' })
+  const circuit = await renderSignals(React.cloneElement(board, {}, <>
+    {board.props.children}
+    <simulation.pcbtransientchannelsimulation name="ALT" bitRate="50Mbps">
+      <simulation.pcbdriverreceiverchannel name="A" driverRef=".TX0 > .Y" receiverRef=".RX0 > .A" pattern="prbs7" seed={42} />
+    </simulation.pcbtransientchannelsimulation>
+    <simulation.eyediagram name="DATA_EYE" simulationRef="TWO" startTime="0UI" endTime="2UI" />
+  </>))
+  const channels = circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel')
+  const data = channels.find(channel => channel.name === 'DATA')
+  assert.equal(data?.seed, 7)
+  assert.equal(channels.find(channel => channel.name === 'A')?.seed, 42)
+  assert.equal(channels.find(channel => channel.name === 'VICTIM')?.seed, undefined)
+  const eye = circuit.find(record => record.type === 'simulation_eye_diagram')
+  assert.equal(eye?.simulation_pcb_transient_channel_simulation_id, data?.simulation_pcb_transient_channel_simulation_id)
+  assert.equal(eye?.start_time_ms, 0)
+  assert.equal(eye?.end_time_ms, 40e-6)
 })
 
 test('unlisted output-only models drive a steady physical low; D81 receives a legal planned seed', { skip: !modelDir }, async () => {
@@ -105,6 +145,7 @@ test('PRBS7 has a complete stable 127-bit period with decorrelated seeds', () =>
   assert.notEqual(a, signalBits({ ...signal, seed: 41 }, 127))
   for (const pattern of ['prbs15', 'prbs31']) assert.equal(signalBits({ ...signal, pattern }, 20).length, 21)
   assert.equal(signalBits({ ...signal, pattern: 'prbs31', offset_ms: 1e6 }, 1002).length, 3)
+  assert.throws(() => signalBits({ ...signal, seed: undefined }, 20), /integer in 1..127/)
   assert.throws(() => signalBits({ ...signal, seed: 0 }, 20), /integer in 1..127/)
   assert.throws(() => signalBits({ ...signal, seed: 0, driver_disabled: true }, 20), /integer in 1..127/)
   assert.equal(signalBits({ ...signal, driver_disabled: true }, 20), '0')

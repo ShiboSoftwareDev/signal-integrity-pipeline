@@ -2,11 +2,11 @@ import React from 'react'
 import { Circuit } from '@tscircuit/core'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Board, source } from '../support/coupled-package-fixture'
+import { Board } from '../support/coupled-package-fixture'
 import { modelRunDefinition } from '../../src/simulation'
 
 test('TSX model pruning removes selections and references for unused physical pins', async () => {
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async () => new Response(source) } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<Board />)
   await circuit.renderUntilSettled()
   const model = circuit.getCircuitJson().filter(record => record.type === 'simulation_ibis_model')[0]

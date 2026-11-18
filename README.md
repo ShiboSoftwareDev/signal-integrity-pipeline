@@ -10,9 +10,13 @@ This draft implements the pipeline entry of [RFC #28](https://github.com/tscircu
 ```tsx
 import { simulation } from "@tscircuit/core"
 
-<simulation.pcbtransientchannelsimulation name="DATA_TEST" bitRate="20Mbps">
-  <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
-</simulation.pcbtransientchannelsimulation>
+<board fabricatorPreset="jlcpcb_standard">
+  {/* Place the routed endpoints and their simulation.ibismodel declarations here. */}
+  <simulation.pcbtransientchannelsimulation name="DATA_TEST" bitRate="20Mbps">
+    <simulation.pcbdriverreceiverchannel name="DATA" driverRef=".TX > .Y" receiverRef=".RX > .A" />
+  </simulation.pcbtransientchannelsimulation>
+  <simulation.eyediagram name="DATA_EYE" simulationRef="DATA_TEST" />
+</board>
 ```
 
 ```ts
@@ -46,13 +50,16 @@ Die POWER/GND references always connect directly to perfect rails;
 vendor package R/L/C remains between every mapped pin and its die node. See the [model rationale](docs/native-signal-levels.md).
 
 See [the TSX levels](examples) and [native evidence](docs/native-signal-levels.md).
-Local native verification uses the sibling core build through `SI_CORE_MODULE`;
-its real TSX rendering emits the source records without a rendering adapter.
-It never substitutes synthetic IBIS. Vendor files remain local and ignored by git.
+The TSX examples use the pinned `@tscircuit/core` release. Place transient
+simulations and eye diagrams directly under the board, including when it
+contains cached subcircuits. Core renders IBIS asset references, checks endpoint
+connectivity and routing, and supplies the preset stackup and via plating.
+It preserves explicit PRBS seeds and plans omitted seeds by channel name.
+Supply the model bytes to the pipeline, which validates the selected IBIS
+models and their pin capabilities. Vendor files remain local and ignored by git.
 
 ```sh
 pnpm install --frozen-lockfile
-# Use a core build with the transient channel elements for TSX examples.
 IBIS_MODEL_DIR=/path/to/vendor/models node --import tsx scripts/run-signal-levels.tsx
 ```
 

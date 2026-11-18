@@ -93,13 +93,12 @@ Files changed: `src/extraction/{mesh,decks}.ts`,
 
 ## Reproduction commands
 
-Use the same local dependency overlays and private vendor models as
+Use the locked dependencies and local vendor models described in
 [`native-signal-levels.md`](native-signal-levels.md). No vendor bytes are included
 in the evidence. Each process keeps the existing 600-second bound:
 
 ```sh
 export IBIS_MODEL_DIR=models
-export SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js"
 export TSX_TSCONFIG_PATH=examples/tsconfig.json
 export NGSPICE_BIN=/opt/homebrew/bin/ngspice
 export SI_NATIVE_TIMEOUT_MS=600000

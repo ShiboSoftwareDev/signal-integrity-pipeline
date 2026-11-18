@@ -26,9 +26,7 @@ are set. The compact unrelated-copper reproduction is
 from the selected DATA channel.
 
 ```sh
-cd ../core && bun run build
-cd ../pipeline-si
-export SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js"
+pnpm install --frozen-lockfile
 export TSX_TSCONFIG_PATH=examples/tsconfig.json IBIS_MODEL_DIR=models
 export SI_DDR3_BOARD="$(cd ../ddr3-route && pwd)/source-pkg/am3352-ddr-track-a-local-dfm-wip-20261007/dist/index/circuit.json"
 node --import tsx scripts/check-full-board-ddr3.tsx
@@ -206,19 +204,9 @@ still prevent building a valid coupled extraction problem.
 
 ## Test-count audit
 
-At the supplied `9a437b2` head, these commands use the same test glob and
-one-at-a-time runner, with all native solver opt-ins disabled:
-
-```sh
-env -u IBIS_MODEL_DIR -u SI_CORE_MODULE -u NGSPICE_BIN -u PCB_SPICE_FASTHENRY \
-  TSX_TSCONFIG_PATH=examples/tsconfig.json pnpm test
-# 227 tests: 202 passed, 25 skipped, 0 failed
-
-env -u NGSPICE_BIN -u PCB_SPICE_FASTHENRY \
-  IBIS_MODEL_DIR=models SI_CORE_MODULE="$PWD/../core/dist/index.js" \
-  TSX_TSCONFIG_PATH=examples/tsconfig.json pnpm test
-# 227 tests: 222 passed, 5 skipped, 0 failed
-```
+At `9a437b2`, with the local core build and the native solver opt-ins disabled,
+202 of 227 tests passed without vendor assets and 25 skipped. With local IBIS
+files, 222 passed and 5 skipped. Both runs had zero failures.
 
 Historical `runs-tests-vendor-coupled.log` had **226 tests: 221 passed / 5 skipped**.
 The corresponding unconfigured log had **201 passed / 25 skipped**. The 20

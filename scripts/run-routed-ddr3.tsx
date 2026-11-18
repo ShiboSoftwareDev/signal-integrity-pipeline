@@ -26,9 +26,9 @@ async function render(name: string, drawing: GraphicsObject): Promise<void> {
 let circuitJson: CircuitJson
 if (process.argv.includes('--addr-cmd')) {
   const physical = JSON.parse(await readFile(process.env.SI_DDR3_BOARD ?? join(directory, 'ddr3-board.json'), 'utf8')) as CircuitJson
-  circuitJson = await withDdr3Signals(physical, ibisSources, { block: 'DDR3_ADDR_CMD' })
+  circuitJson = await withDdr3Signals(physical, { block: 'DDR3_ADDR_CMD' })
 } else {
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async url => new Response(ibisSources[`models/${String(url).split('/').at(-1)}`]) } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<Board />)
   await circuit.renderUntilSettled()
   circuitJson = circuit.getCircuitJson() as CircuitJson

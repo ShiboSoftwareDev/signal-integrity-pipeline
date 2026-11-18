@@ -2,7 +2,7 @@
 
 This draft follows RFC #29 at `9adc0fe`. The examples now use the actual
 `simulation.pcbtransientchannelsimulation`, `simulation.pcbdriverreceiverchannel` and
-`simulation.ibismodel` elements rendered by the sibling core build. Public results
+`simulation.ibismodel` elements rendered by the pinned core release. Public results
 contain only receiver/quiet-driver waveforms and listed-leg total RLGC matrices.
 
 The six supported cases passed native timestep and section convergence. At acquisition, all
@@ -51,13 +51,11 @@ not raw-source acceptance. No new DDR3 waveforms or board-native evidence are cl
 
 ## Reproduction
 
-Install the pinned circuit-json and props packages. Build core with the transient
-channel elements and make that build available to the examples. Vendor IBIS bytes
-stay under ignored `models/`.
+Install the locked dependencies for the transient channel examples.
+Vendor IBIS bytes stay under ignored `models/`.
 
 ```sh
 export OMP_NUM_THREADS=1 IBIS_MODEL_DIR=models
-export SI_CORE_MODULE="$(cd ../core && pwd)/dist/index.js"
 export TSX_TSCONFIG_PATH=examples/tsconfig.json
 export NGSPICE_BIN=/opt/homebrew/bin/ngspice
 export SI_EXTRACTION_CACHE=/path/to/accepted-native-backup
@@ -86,10 +84,7 @@ in `tests/evidence/signal-levels/request-identity.json`, with zero new native ca
 Acquisition checkout heads record Git HEAD while working edits were present;
 request hashes and final-source replay establish the exact simulation identity.
 
-This remains a draft until the sibling dependencies are published. GitHub CI at
-the first implementation push failed because the published circuit-json version
-lacks the shared RFC schemas; local checks use the listed sibling builds. The CLI
-call boundary is unchanged, but its extra aggregate JSON write must use the
-pipeline’s indexed result parts when the full result exceeds V8’s string limit.
+The CLI’s additional aggregate JSON write must use the pipeline’s indexed result
+parts when the full result exceeds V8’s string limit.
 
 The no-enums refactor is verified by sequential cache-only example replay. Local validation passed typecheck, lint (one existing mesh file-length warning), module checks, vocabulary (88.4%), and `npm test`: 218 passed, three optional skips, zero failures. The final test invocation used `NODE_OPTIONS='--test-skip-pattern=^native.(single-ended|lossless-limit)'` to exclude the two solver tests. An initial invocation placed that option after the test paths, where Node ignored it; the small native buffer test ran before the invocation was corrected. Example replays launched no native processes.

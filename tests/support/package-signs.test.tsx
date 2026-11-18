@@ -8,7 +8,7 @@ import { sha256 } from '../../src/kernel'
 
 test('TSX positive vendor capacitance magnitudes require a visible, hashed Maxwell correction', async () => {
   const bytes = new TextEncoder().encode(source.replaceAll('-.2p', '.2p').replaceAll('-.5p', '.5p').replaceAll('-.1p', '.1p'))
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async () => new Response(bytes) } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<Board />)
   await circuit.renderUntilSettled()
   const model = circuit.getCircuitJson().find(record => record.type === 'simulation_ibis_model')!

@@ -1,8 +1,6 @@
 import React from 'react'
-import { simulation } from '@tscircuit/core'
+import { Circuit, simulation } from '@tscircuit/core'
 import type { CircuitJson } from '../../src/board'
-import { Circuit } from '@tscircuit/core'
-import type { IbisSources } from '../../src/buffers'
 
 const cpu = ['M3', 'M4', 'N1', 'N2', 'N3', 'N4', 'P3', 'P4', 'M2', 'P1', 'P2']
 const dram = ['F2', 'G2', 'E3', 'H3', 'F8', 'H7', 'F7', 'H8', 'E7', 'F3', 'G3']
@@ -49,14 +47,9 @@ export function Ddr3Signals({ 'addr-cmd': addrCmd, pattern = 'prbs7', 'duration-
 }
 
 /** Preserve all source-board records; append TSX SI declarations and the requested preset when absent. */
-export async function withDdr3Signals(physicalRecords: CircuitJson, ibisSources: IbisSources, options: Ddr3Options = {}): Promise<CircuitJson> {
+export async function withDdr3Signals(physicalRecords: CircuitJson, options: Ddr3Options = {}): Promise<CircuitJson> {
   const board = [...physicalRecords]
-  const circuit = new Circuit({ platform: { partsEngineDisabled: true, platformFetch: async url => {
-    const file = `models/${String(url).split('/').at(-1)}`
-    const bytes = ibisSources[file]
-    if (bytes === undefined) throw new Error(`Missing local vendor asset ${file}`)
-    return new Response(typeof bytes === 'string' ? bytes : new Uint8Array(bytes).buffer)
-  } } })
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(<Ddr3Signals addr-cmd={options.block === 'DDR3_ADDR_CMD'} pattern={options.pattern} duration-seconds={options.durationSeconds} driver-model={options.driverModel} nets={options.nets} active-nets={options.activeNets} />)
   await circuit.renderUntilSettled()
   const declarations = circuit.getCircuitJson() as CircuitJson
