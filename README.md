@@ -5,7 +5,7 @@ Signal-integrity tools for tscircuit boards.
 ## How to use it?
 
 The stack retains Circuit JSON validation, physical stackup and stimulus helpers, IBIS asset loading and the ngspice adapter.
-Declare transient channels in Circuit JSON. Signal preparation validates endpoint topology, selected IBIS capabilities, timing and PRBS patterns.
+Reads the PCB transient channel simulation records that core writes from TSX, and checks each channel's endpoint pins, IBIS models, timing and PRBS pattern before simulating.
 
 ## General workflow
 
