@@ -20,7 +20,7 @@ test('TSX touching same-net rail strips form one physical conductor before extra
   const circuit = await renderCoreSignals(<TouchingRail />)
   const rail = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'RAIL')!
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
-  const scope = channelCopperScope(circuit, connectedSourceIds(circuit, rail.source_net_id), connectedSourceIds(circuit, ground.source_net_id))
+  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, rail.source_net_id), reference: connectedSourceIds(circuit, ground.source_net_id) })
   const geometry = segmentRoutes(circuit, scope)
   assert.ok(geometry.wires.some(wire => Math.abs(wire.width - .6) < 1e-7 && wire.joins?.length))
   assert.doesNotThrow(() => ((solver: RouteFieldsSolver) => {

@@ -34,7 +34,7 @@ test('the real board and the stage drawing share one camera: a via lands on the 
   const stage = root.visualizeStage(1)
   const drawing: GraphicsObject = { ...stage, circles: [{ center: { x: via.x, y: via.y }, radius: 0.05, fill: '#ff0000' }], lines: [...stage.lines!, { points: [{ x: -1e3, y: -1e3 }, { x: 1e3, y: 1e3 }] }] }
   for (const [width, height] of [[800, 600], [1200, 500], [500, 900]]) {
-    const picture = boardPicture(circuit, drawing, width, height)
+    const picture = boardPicture({ circuit, drawing, width, height })
     const [left, top] = offset(picture.board)
     const board = centre(picture.board, /data-type="pcb_via"/)
     const overlay = project(picture.overlay, centre(picture.overlay, /fill="#ff0000"/))
@@ -52,7 +52,7 @@ test('an empty drawing views the whole board; a stage views its frame; silkscree
   assert.deepEqual(boardPictureView(circuit, root.visualizeStage(4)), boardPictureView(circuit, root.visualizeStage(1)), 'every stage shares one camera')
   assert.equal(boardPictureView(circuit, root.visualizeStage(1)).maxX, frame.center.x + frame.width / 2)
   const labelled = [...circuit, { type: 'pcb_silkscreen_text', pcb_silkscreen_text_id: 't', pcb_component_id: 'c', text: 'REFDES', anchor_position: { x: 0, y: 0 }, font: 'tscircuit2024', font_size: 1, layer: 'top', anchor_alignment: 'center' }] as typeof circuit
-  assert.doesNotMatch(boardPicture(labelled, { coordinateSystem: 'cartesian' }, 400, 300).board, /REFDES/)
+  assert.doesNotMatch(boardPicture({ circuit: labelled, drawing: { coordinateSystem: 'cartesian' }, width: 400, height: 300 }).board, /REFDES/)
 })
 
 /** RGBA pixels of a PNG, decoded by rendering it as an SVG image. */
@@ -64,7 +64,7 @@ test('composed board pictures of every two-trace stage match their PNG snapshots
   const { root } = await routedVisualFixture()
   const [width, height] = [480, 300]
   for (const number of [0, 1, 2, 3, 4, 5, 6]) {
-    const png = new Resvg(boardPictureSvg(root.inputProblem.circuitJson, root.visualizeStage(number), width, height), { font: { defaultFontFamily: 'Arial' } }).render().asPng()
+    const png = new Resvg(boardPictureSvg({ circuit: root.inputProblem.circuitJson, drawing: root.visualizeStage(number), width, height }), { font: { defaultFontFamily: 'Arial' } }).render().asPng()
     const path = join(import.meta.dirname, '__snapshots__', `board-picture-stage-${number}.png`)
     if (process.env.UPDATE_ROUTED_VISUALS === '1') {
       mkdirSync(join(path, '..'), { recursive: true })

@@ -11,7 +11,7 @@ test('TSX parallel coupling uses solved electric AND magnetic coupling instead o
     const circuit = await renderCoreSignals(<Board spacing={spacing} thickness={thickness} />)
     const selected = new Set(circuit.filter(record => record.type === 'source_trace').filter(record => record.connected_source_port_ids.length === 2).flatMap(trace => trace.connected_source_port_ids))
     const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
-    const scope = channelCopperScope(circuit, selected, connectedSourceIds(circuit, ground.source_net_id), new Set(), 32)
+    const scope = channelCopperScope({ circuit, selected, reference: connectedSourceIds(circuit, ground.source_net_id), rails: new Set(), distanceMm: 32 })
     const result = ((solver: RouteFieldsSolver) => {
     solver.solve()
     return solver.getOutput().value

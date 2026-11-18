@@ -34,7 +34,7 @@ test('TSX coupling scope keeps adjacent layers, full via spans and return pours 
   })
   const selected = circuit.filter(record => record.type === 'source_trace').find(trace => trace.name === 'SELECTED_route')!
   const ground = circuit.filter(record => record.type === 'source_net').find(net => net.name === 'GND')!
-  const scope = channelCopperScope(circuit, connectedSourceIds(circuit, selected.connected_source_port_ids[0]), connectedSourceIds(circuit, ground.source_net_id))
+  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, selected.connected_source_port_ids[0]), reference: connectedSourceIds(circuit, ground.source_net_id) })
   const retained = circuit.filter(record => record.type === 'pcb_trace').filter(trace => scope.pcbTraceIds.includes(trace.pcb_trace_id))
     .map(trace => circuit.filter(record => record.type === 'source_trace').find(source => source.source_trace_id === trace.source_trace_id)!.name!.replace('_route', ''))
   assert.deepEqual(retained.sort(), ['ADJACENT', 'SAME', 'SELECTED'])

@@ -16,13 +16,13 @@ test('nets follow electrical connectivity, and one camera frames the copper, its
   const { focus, pane, camera } = view
   assert.ok(pane.minX >= focus.maxX || pane.maxY <= focus.minY, 'the pane sits beside the focus, never on it')
   assert.deepEqual(camera, { minX: Math.min(focus.minX, pane.minX), maxX: Math.max(focus.maxX, pane.maxX), minY: Math.min(focus.minY, pane.minY), maxY: Math.max(focus.maxY, pane.maxY) })
-  const drawing = routeBoardDrawing(circuitJson, scope)
+  const drawing = routeBoardDrawing({ circuit: circuitJson, scope })
   assert.equal(drawing.rects![0].label, 'camera')
   assert.equal(drawing.texts!.length, 0, 'no captions or legends')
   assert.ok(drawing.lines!.every((line) => line.strokeWidth === 0.1 && line.label), 'real copper width, labelled with its net for hover')
   const copper = await routedCopper()
   assert.equal(new Set(routeView(copper.circuitJson, copper.scope).sources.values()).size, 1, 'a neighbour is context, not a net')
-  assert.deepEqual(routeBoardDrawing(circuitJson, undefined).lines, [], 'without a scope nothing is overlaid, so the whole board shows')
+  assert.deepEqual(routeBoardDrawing({ circuit: circuitJson, scope: undefined }).lines, [], 'without a scope nothing is overlaid, so the whole board shows')
 })
 
 test('a differential channel colours its two nets as two shades of one hue and carries its bit period', async () => {
@@ -51,16 +51,16 @@ test('the pane goes on the side that brings the camera nearest 1.6:1', () => {
 
 test('the layer is in the stroke: top solid, inner hollow, bottom dimmed', () => {
   const points = [{ x: 0, y: 0 }, { x: 1, y: 0 }]
-  assert.equal(routeStroke(points, 'red', 0.2, 'top').length, 1)
-  const [inner, core] = routeStroke(points, 'red', 0.2, 'inner2')
+  assert.equal(routeStroke({ points, color: 'red', width: 0.2, layer: 'top' }).length, 1)
+  const [inner, core] = routeStroke({ points, color: 'red', width: 0.2, layer: 'inner2' })
   assert.ok(core.strokeWidth! < inner.strokeWidth!)
-  const [, shade] = routeStroke(points, 'red', 0.2, 'bottom')
+  const [, shade] = routeStroke({ points, color: 'red', width: 0.2, layer: 'bottom' })
   assert.equal(shade.strokeWidth, 0.2)
 })
 
 test('pin marks never grow past half their closest spacing, and sit on a dark halo', () => {
   const drawing: GraphicsObject = { polygons: [] }
-  routeMarks(drawing, [{ point: { x: 0, y: 0 }, color: 'red', driver: true }, { point: { x: 0.8, y: 0 }, color: 'red', driver: false }], 10)
+  routeMarks({ drawing, marks: [{ point: { x: 0, y: 0 }, color: 'red', driver: true }, { point: { x: 0.8, y: 0 }, color: 'red', driver: false }], unit: 10 })
   assert.equal(drawing.polygons!.length, 4)
   const [first, second] = [drawing.polygons!.slice(0, 2), drawing.polygons!.slice(2)].map((marks) => marks.flatMap((polygon) => polygon.points.map((point) => point.x)))
   assert.ok(Math.max(...first) < Math.min(...second), 'halos never touch')
@@ -72,7 +72,7 @@ test('the strip unrolls nets to scale, centred in the pane, with one length labe
   const view = routeView(circuitJson, scope)
   const drawing: GraphicsObject = { lines: [], polygons: [], texts: [] }
   const nets = [...new Set(view.sources.values())]
-  routeStrip(drawing, view.pane, [{ net: nets[0], length: 8 }, { net: nets[1], length: 4 }])
+  routeStrip({ drawing, pane: view.pane, rows: [{ net: nets[0], length: 8 }, { net: nets[1], length: 4 }] })
   const bars = drawing.lines!.filter((line) => line.label)
   const [long, short] = bars.map((line) => line.points[1].x - line.points[0].x)
   assert.ok(Math.abs(long / short - 2) < 1e-9)
@@ -84,7 +84,7 @@ test('the strip unrolls nets to scale, centred in the pane, with one length labe
 test('two-trace TSX board drawing SVG snapshot', async () => {
   const { root } = await routedVisualFixture()
   const sections = root.stageOutput('RouteSectionsSolver').value[0]
-  assertRouteVisual(routeBoardDrawing(root.inputProblem.circuitJson, sections.scope), 'board', 'route-visual-board')
+  assertRouteVisual(routeBoardDrawing({ circuit: root.inputProblem.circuitJson, scope: sections.scope }), 'board', 'route-visual-board')
 })
 
 test('display sampling bounds object counts and preserves the first and last item', () => {

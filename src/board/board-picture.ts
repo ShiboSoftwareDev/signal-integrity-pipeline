@@ -28,26 +28,36 @@ export interface BoardPicture {
 export function boardPictureView(circuit: CircuitJson, drawing: GraphicsObject): Viewbox {
   const frame = drawing.rects?.find((rect) => rect.label === 'camera')
   if (frame) return { minX: frame.center.x - frame.width / 2, maxX: frame.center.x + frame.width / 2, minY: frame.center.y - frame.height / 2, maxY: frame.center.y + frame.height / 2 }
-  const empty = !(['lines', 'rects', 'circles', 'polygons', 'points', 'texts'] as const).some((key) => drawing[key]?.length)
-  const box = empty ? routeBoardBox(circuit) : getBounds(drawing)
+  const box = drawingBounds(circuit, drawing)
   const margin = Math.max(box.maxX - box.minX, box.maxY - box.minY, 1e-3) * 0.04
   return { minX: box.minX - margin, maxX: box.maxX + margin, minY: box.minY - margin, maxY: box.maxY + margin }
 }
 
-/** Every coordinate a record carries, whatever its shape. */
-function recordPoints(record: object): { x: number; y: number }[] {
-  const value = record as Record<string, unknown>
-  /** Whether a value is a point with numeric x and y. */
-  const point = (item: unknown): item is { x: number; y: number } => typeof item === 'object' && item !== null && typeof (item as { x?: unknown }).x === 'number' && typeof (item as { y?: unknown }).y === 'number'
-  return [value, value.center, value.anchor_position, ...[value.route, value.points, value.outline].flatMap((list) => (Array.isArray(list) ? list : []))].filter(point)
+/** Use the board's extent when the drawing carries no geometry. */
+function drawingBounds(circuit: CircuitJson, drawing: GraphicsObject): Viewbox {
+  if ((['lines', 'rects', 'circles', 'polygons', 'points', 'texts'] as const).some((key) => drawing[key]?.length)) return getBounds(drawing)
+  return routeBoardBox(circuit)
 }
 
-const crops = new WeakMap<CircuitJson, Map<string, CircuitJson>>()
+/** A point with numeric x and y. */
+function isPoint(item: unknown): item is { x: number; y: number } {
+  return typeof item === 'object' && item !== null && typeof (item as { x?: unknown }).x === 'number' && typeof (item as { y?: unknown }).y === 'number'
+}
+
+/** Every coordinate a record carries, whatever its shape. */
+function recordPoints(record: object): { x: number; y: number }[] {
+  const { center, anchor_position, route, points, outline } = record as Record<string, unknown>
+  const pointLists = [route, points, outline].filter(Array.isArray)
+  return [record, center, anchor_position, ...pointLists.flat()].filter(isPoint)
+}
+
+type CameraKey = string
+const crops = new WeakMap<CircuitJson, Map<CameraKey, CircuitJson>>()
 
 /** Only records near the camera reach circuit-to-svg, and silkscreen text never does, so the board layer stays small and wordless. */
 function cropCircuit(circuit: CircuitJson, view: Viewbox): CircuitJson {
   const key = JSON.stringify(view)
-  const cache = crops.get(circuit) ?? new Map<string, CircuitJson>()
+  const cache = crops.get(circuit) ?? new Map<CameraKey, CircuitJson>()
   crops.set(circuit, cache)
   const margin = Math.max(view.maxX - view.minX, view.maxY - view.minY) * 0.1
   const cropped =
@@ -63,11 +73,12 @@ function cropCircuit(circuit: CircuitJson, view: Viewbox): CircuitJson {
   return cropped
 }
 
-const boards = new WeakMap<CircuitJson, Map<string, string>>()
+type BoardSvgKey = string
+const boards = new WeakMap<CircuitJson, Map<BoardSvgKey, string>>()
 
 /** circuit-to-svg is the slow part on large boards, so keep the last few cameras per board. */
-function boardSvg(circuit: CircuitJson, view: Viewbox, width: number, height: number): string {
-  const cache = boards.get(circuit) ?? new Map<string, string>()
+function boardSvg({ circuit, view, width, height }: { circuit: CircuitJson; view: Viewbox; width: number; height: number }): string {
+  const cache = boards.get(circuit) ?? new Map<BoardSvgKey, string>()
   boards.set(circuit, cache)
   const key = JSON.stringify([view, width, height])
   const svg =
@@ -87,11 +98,19 @@ function boardSvg(circuit: CircuitJson, view: Viewbox, width: number, height: nu
   return svg
 }
 
+interface BoardPictureInput {
+  circuit: CircuitJson
+  drawing: GraphicsObject
+  width: number
+  height: number
+  region?: Viewbox
+}
+
 /**
  * The real board under a stage drawing, both cropped to one camera and letterboxed in width × height.
  * `region` zooms into part of the camera; labels keep their on-screen size.
  */
-export function boardPicture(circuit: CircuitJson, drawing: GraphicsObject, width: number, height: number, region?: Viewbox): BoardPicture {
+export function boardPicture({ circuit, drawing, width, height, region }: BoardPictureInput): BoardPicture {
   const camera = boardPictureView(circuit, drawing)
   const view = region ?? camera
   const scale = Math.min(width / (view.maxX - view.minX), height / (view.maxY - view.minY))
@@ -110,7 +129,7 @@ export function boardPicture(circuit: CircuitJson, drawing: GraphicsObject, widt
   const [x, y, w, h] = ['x', 'y', 'width', 'height'].map((name) => Number(new RegExp(` ${name}="([^"]+)"`).exec(rect)![1]))
   const unit = w / pictureWidth
   const overlay = raw.replace(/^<svg[^>]*>/, `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x - left * unit} ${y - top * unit} ${width * unit} ${height * unit}">`)
-  const board = boardSvg(circuit, view, pictureWidth, pictureHeight).replace(/^<svg /, `<svg x="${left}" y="${top}" `)
+  const board = boardSvg({ circuit, view, width: pictureWidth, height: pictureHeight }).replace(/^<svg /, `<svg x="${left}" y="${top}" `)
   return {
     board: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${boardColors.background}"/>${board}</svg>`,
     overlay,
@@ -118,7 +137,7 @@ export function boardPicture(circuit: CircuitJson, drawing: GraphicsObject, widt
 }
 
 /** Both layers as one standalone SVG, for PNG renders and snapshots. */
-export function boardPictureSvg(circuit: CircuitJson, drawing: GraphicsObject, width: number, height: number): string {
-  const picture = boardPicture(circuit, drawing, width, height)
+export function boardPictureSvg({ circuit, drawing, width, height }: Omit<BoardPictureInput, 'region'>): string {
+  const picture = boardPicture({ circuit, drawing, width, height })
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${picture.board}${picture.overlay}</svg>`
 }

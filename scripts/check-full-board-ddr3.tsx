@@ -21,7 +21,7 @@ for (const id of circuit.filter(record => record.type === 'source_net').filter(n
 const topology = new Map(signals.flatMap(signal => endpointPorts(signal.driver).flatMap(port => [...signalTopology(circuit, port, rails)].map(id => [id, signal.name] as const))))
 const reference = models[0].ibis_pin_name_to_source_port_id.A1
 const ground = connectedSourceIds(circuit, reference)
-const scope = channelCopperScope(circuit, new Set(topology.keys()), ground, rails)
+const scope = channelCopperScope({ circuit, selected: new Set(topology.keys()), reference: ground, rails })
 const routed = routedLanes(circuit, scope, topology, new Set(signals.flatMap(signal => endpointPorts(signal.driver))), rails)
 const sourceTraces = circuit.filter(record => record.type === 'source_trace')
 const pcbTraces = circuit.filter(record => record.type === 'pcb_trace')

@@ -113,10 +113,10 @@ export function routeWaveformDrawing(state: WaveformState): GraphicsObject {
   const { board, probes, capture, durationSeconds } = state
   const view = board && routeView(board.circuitJson, board.scope)
   const frame = view ?? routeFrame({ minX: 0, maxX: 100, minY: 0, maxY: 40 })
-  const drawing = board ? routeBoardDrawing(board.circuitJson, board.scope) : routeCanvas(frame)
+  const drawing = board ? routeBoardDrawing({ circuit: board.circuitJson, scope: board.scope }) : routeCanvas(frame)
   const styles = probes.map((probe, i) => {
     const net = view?.ports.get(probe.sourcePortId)
-    return { color: net?.color ?? routeHue(195 + (i * 360) / probes.length), label: net?.label ?? probe.name, unitInterval: net?.unitInterval, differential: Boolean(net?.differential) }
+    return { color: net?.color ?? routeHue({ hue: 195 + (i * 360) / probes.length }), label: net?.label ?? probe.name, unitInterval: net?.unitInterval, differential: Boolean(net?.differential) }
   })
   // Single-ended input thresholds mean nothing for a differential receiver.
   const threshold = probes.some((probe, i) => !probe.near && !styles[i].differential) ? state.threshold : undefined
@@ -125,11 +125,11 @@ export function routeWaveformDrawing(state: WaveformState): GraphicsObject {
       const point = routePortPoint(board.circuitJson, probe.sourcePortId)
       return point ? [{ point, color: styles[i].color, driver: probe.near, label: styles[i].label }] : []
     })
-    routeMarks(drawing, marks, frame.unit)
+    routeMarks({ drawing, marks, unit: frame.unit })
   }
   const pane = frame.pane
-  routePane(drawing, pane, state.error ? routeTones.failure : undefined)
-  if (state.error) routeFailure(drawing, pane, state.error)
+  routePane({ drawing, box: pane, edge: state.error ? routeTones.failure : undefined })
+  if (state.error) routeFailure({ drawing, box: pane, message: state.error })
   const unit = Math.max(pane.maxX - pane.minX, pane.maxY - pane.minY) / 100
   const plot: Viewbox = { minX: pane.minX + unit * 10, maxX: pane.maxX - unit * 3, minY: pane.minY + unit * 8, maxY: pane.maxY - unit * (state.error ? 14 : 4) }
   const size = unit * 2.6
@@ -156,18 +156,18 @@ export function routeWaveformDrawing(state: WaveformState): GraphicsObject {
   const x = (value: number): number => plot.minX + ((value - (eye ? 0 : start)) / (eye ? 2 : Math.max(durationSeconds - start, 1e-30))) * (plot.maxX - plot.minX)
   for (const level of levels) {
     drawing.lines!.push({ points: [{ x: plot.minX, y: y(level.value) }, { x: plot.maxX, y: y(level.value) }], strokeColor: level.value === 0 ? routeTones.quiet : routeTones.paneEdge, strokeWidth: unit * 0.15 })
-    routeText(drawing, plot.minX - unit * 1.2, y(level.value), `${level.text} V`, routeTones.quiet, size, 'center_right')
+    routeText({ drawing, x: plot.minX - unit * 1.2, y: y(level.value), text: `${level.text} V`, color: routeTones.quiet, size, anchor: 'center_right' })
   }
   if (eye)
     for (const tick of [0, 1, 2]) {
       drawing.lines!.push({ points: [{ x: x(tick), y: plot.minY }, { x: x(tick), y: plot.maxY }], strokeColor: routeTones.paneEdge, strokeWidth: unit * 0.15 })
-      routeText(drawing, x(tick), plot.minY - unit * 1.5, tick ? `${tick} UI` : '0', routeTones.quiet, size, 'top_center')
+      routeText({ drawing, x: x(tick), y: plot.minY - unit * 1.5, text: tick ? `${tick} UI` : '0', color: routeTones.quiet, size, anchor: 'top_center' })
     }
   else {
     const [scale, name] = ([[1, 's'], [1e3, 'ms'], [1e6, 'µs'], [1e9, 'ns'], [1e12, 'ps']] as const).find(([scale]) => durationSeconds * scale >= 1) ?? [1e12, 'ps']
     for (const tick of roundTicks(start * scale, durationSeconds * scale, 5)) {
       drawing.lines!.push({ points: [{ x: x(tick.value / scale), y: plot.minY }, { x: x(tick.value / scale), y: plot.minY - unit }], strokeColor: routeTones.quiet, strokeWidth: unit * 0.15 })
-      routeText(drawing, x(tick.value / scale), plot.minY - unit * 1.5, `${tick.text} ${name}`, routeTones.quiet, size, 'top_center')
+      routeText({ drawing, x: x(tick.value / scale), y: plot.minY - unit * 1.5, text: `${tick.text} ${name}`, color: routeTones.quiet, size, anchor: 'top_center' })
     }
   }
   if (threshold) {
@@ -213,7 +213,7 @@ export function routeWaveformDrawing(state: WaveformState): GraphicsObject {
     return drawing
   }
   for (const { entry, index } of [...series].sort((a, b) => Number(!probes[a.index]?.near) - Number(!probes[b.index]?.near))) {
-    const style = styles[index] ?? { color: routeHue(0), label: entry.name, unitInterval: undefined, differential: false }
+    const style = styles[index] ?? { color: routeHue({ hue: 0 }), label: entry.name, unitInterval: undefined, differential: false }
     const near = Boolean(probes[index]?.near)
     for (const points of curve(entry.voltageLevels, style.unitInterval ?? unitInterval))
       drawing.lines!.push({ points, strokeColor: style.color, strokeWidth: unit * (near ? 0.18 : 0.3), strokeDash: near ? '6 4' : undefined, label: style.label, layer: 'waveform' })

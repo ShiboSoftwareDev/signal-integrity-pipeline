@@ -1,9 +1,23 @@
 import type { LaneMapping, RoutedPoint } from './types'
 import { fail } from '../diagnostics'
 
+type SourcePortId = LaneMapping['from']
+
+/** Reverse the traversal of a via along with the route. */
+function reverseRoutePoint(point: RoutedPoint): RoutedPoint {
+  if (point.route_type !== 'via') return point
+  return { ...point, from_layer: point.to_layer, to_layer: point.from_layer }
+}
+
+/** The physical port at the chosen end of a mapping. */
+function mappingPcbPort(mapping: LaneMapping, sourcePortId: SourcePortId): string {
+  if (mapping.from === sourcePortId) return mapping.pcbPorts[0]
+  return mapping.pcbPorts[1]
+}
+
 /** Join degree-two copper paths; retain internal pin positions for exact taps in the uniform pi model. */
 export function joinSeriesMappings(mappings: LaneMapping[]): LaneMapping[] {
-  const adjacent = new Map<string, LaneMapping[]>()
+  const adjacent = new Map<SourcePortId, LaneMapping[]>()
   for (const mapping of mappings) for (const id of [mapping.from, mapping.to]) adjacent.set(id, [...adjacent.get(id) ?? [], mapping])
   if ([...adjacent.values()].some(edges => edges.length > 2)) fail('route_selection', 'Branched copper cannot be represented as a series channel')
   const used = new Set<LaneMapping>()
@@ -27,12 +41,18 @@ export function joinSeriesMappings(mappings: LaneMapping[]): LaneMapping[] {
       const next = adjacent.get(end)!.find(edge => !used.has(edge))
       if (!next) break
       used.add(next)
-      const forward = next.from === end
-      const points = forward ? next.originalRoute : [...next.originalRoute].reverse().map(point => point.route_type === 'via' ? { ...point, from_layer: point.to_layer, to_layer: point.from_layer } : point)
-      route.push(...points.slice(route.length ? 1 : 0))
+      let points = next.originalRoute
+      let nextEnd = next.to
+      if (next.from !== end) {
+        points = [...points].reverse().map(reverseRoutePoint)
+        nextEnd = next.from
+      }
+      let skip = 0
+      if (route.length) skip = 1
+      route.push(...points.slice(skip))
+      end = nextEnd
       parts.push(next)
       length += next.stages.reduce((sum, stage) => sum + stage.lengthMm, 0)
-      end = forward ? next.to : next.from
       if (adjacent.get(end)!.length === 2) taps.push({ sourcePortId: end, lengthMm: length })
     }
     if (parts.length === 1) {
@@ -41,7 +61,7 @@ export function joinSeriesMappings(mappings: LaneMapping[]): LaneMapping[] {
     }
     result.push({ ...parts[0], from: start, to: end, originalRoute: route,
       sourceTraceIds: parts.map(part => part.sourceTraceId), pcbTraceId: parts.map(part => part.pcbTraceId).join('+'),
-      pcbPorts: [parts[0].pcbPorts[parts[0].from === start ? 0 : 1], parts.at(-1)!.pcbPorts[parts.at(-1)!.to === end ? 1 : 0]],
+      pcbPorts: [mappingPcbPort(parts[0], start), mappingPcbPort(parts.at(-1)!, end)],
       stages: parts.flatMap(part => part.stages), intermediatePorts: taps.map(tap => ({ sourcePortId: tap.sourcePortId, fraction: tap.lengthMm / length })) })
   }
   return result

@@ -40,13 +40,13 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   const port = circuit.filter(record => record.type === 'source_port').find(record => record.source_component_id === component.source_component_id)!
   const groundNet = circuit.filter(record => record.type === 'source_net').find(record => record.name === 'GND')!
   const ground = connectedSourceIds(circuit, groundNet.source_net_id)
-  const scope = channelCopperScope(circuit, connectedSourceIds(circuit, port.source_port_id), ground)
+  const scope = channelCopperScope({ circuit, selected: connectedSourceIds(circuit, port.source_port_id), reference: ground })
   const geometry = segmentRoutes(circuit, scope)
   assert.equal(scope.pcbTraceIds.length, 3)
   assert.ok(geometry.slices.some(slice => slice.wires.length === 2))
   assert.deepEqual(new Set(geometry.slices.flatMap(slice => slice.references.map(ref => ref.layer))), new Set(['inner1', 'inner3']))
   const inner4 = { ...geometry.wires[0], layer: 'inner4' }
-  assert.deepEqual(routeReferences(geometry, inner4, -2).map(plane => plane.layer), ['inner5', 'inner3'], 'inner5 power copper intervenes before inner6 GND')
+  assert.deepEqual(routeReferences({ geometry, wire: inner4, position: -2 }).map(plane => plane.layer), ['inner5', 'inner3'], 'inner5 power copper intervenes before inner6 GND')
   const extracted = ((solver: RouteFieldsSolver) => {
     solver.solve()
     return solver.getOutput().value
@@ -65,14 +65,14 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
   assert.ok(coarse.maximumDelaySeconds <= 115e-12)
   assert.throws(() => routeLadder(extracted, () => '0', 230e-12, 1, 0), /Cells per rise/)
   const mergedCircuit = await renderCoreSignals(<Board overlap />)
-  const merged = segmentRoutes(mergedCircuit, channelCopperScope(mergedCircuit, connectedSourceIds(mergedCircuit, port.source_port_id), ground))
+  const merged = segmentRoutes(mergedCircuit, channelCopperScope({ circuit: mergedCircuit, selected: connectedSourceIds(mergedCircuit, port.source_port_id), reference: ground }))
   assert.ok(merged.wires.some(wire => wire.joins?.length), 'same-net overlapping bend bodies become equipotential breakout patches')
   assert.doesNotThrow(() => ((solver: RouteFieldsSolver) => {
     solver.solve()
     return solver.getOutput().value
   }) (new RouteFieldsSolver({ geometry: merged, materials: { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 }, artifactPrefix: 'test' })))
   const obliqueCircuit = await renderCoreSignals(<Board oblique />)
-  const obliqueScope = channelCopperScope(obliqueCircuit, connectedSourceIds(obliqueCircuit, port.source_port_id), ground)
+  const obliqueScope = channelCopperScope({ circuit: obliqueCircuit, selected: connectedSourceIds(obliqueCircuit, port.source_port_id), reference: ground })
   const obliqueGeometry = segmentRoutes(obliqueCircuit, obliqueScope)
   const materials = { maskMm: .02, maskEr: 3.3, maskLoss: .025, substrateLoss: .02 }
   const obliqueFields = ((solver: RouteFieldsSolver) => {
@@ -89,10 +89,10 @@ test('TSX routed 2D preserves nearby conductors, changes actual reference and ca
     return error.circuitJson
   })
   const viaSource = viaCircuit.find(record => record.type === 'source_trace')! as Extract<typeof viaCircuit[number], { type: 'source_trace' }>
-  const viaScope = channelCopperScope(viaCircuit, connectedSourceIds(viaCircuit, viaSource.connected_source_port_ids[0]), ground)
+  const viaScope = channelCopperScope({ circuit: viaCircuit, selected: connectedSourceIds(viaCircuit, viaSource.connected_source_port_ids[0]), reference: ground })
   const viaGeometry = segmentRoutes(viaCircuit, viaScope)
   assert.ok(viaGeometry.wires.every(wire => wire.layer === 'inner2'))
-  assert.ok(routeContactFrame(viaGeometry, viaScope, 'top', [-3, 0]))
+  assert.ok(routeContactFrame({ geometry: viaGeometry, scope: viaScope, layer: 'top', point: [-3, 0] }))
   assert.equal(viaGeometry.viaContacts.filter(contact => contact.layer === 'top').length, 2, 'via-in-pad contacts survive zero-length top wires')
   const viaTransitions = routeTransitions(viaCircuit, viaScope, viaGeometry, (wire, point) => `${wire.layer}_${point.join('_')}`.replace(/[-.]/g, '_'), 'source_net_0')
   assert.equal(viaTransitions.records.filter(record => record.kind === 'pad').length, 2, 'BGA/SMD pad C remains attached through via-only contacts')

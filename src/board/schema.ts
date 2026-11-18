@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import * as base from 'circuit-json'
 import type { CircuitJson } from 'circuit-json'
-import { isQuiet } from './signals'
+import { isQuiet, signalEndpointPortIds } from './signals'
 import { fail } from './diagnostics'
 export type { CircuitJson, SimulationExperiment, SimulationIbisModel } from 'circuit-json'
 
@@ -88,8 +88,7 @@ export function validateCircuitRecords(records: unknown): void {
     const signal = signals.get(signalId)
     if (!signal) continue
     const ports = rlgc.conductors.filter(conductor => conductor.simulation_pcb_driver_receiver_channel_id === signalId).map(conductor => conductor.source_port_id)
-    const driver = signal.driver
-    const expected = 'source_port_id' in driver ? [driver.source_port_id] : [driver.p_source_port_id, driver.n_source_port_id]
+    const expected = signalEndpointPortIds(signal.driver)
     if (ports.length !== expected.length || expected.some(port => !ports.includes(port))) fail('circuit_schema', `${signal.name}: RLGC conductors must identify every driver port exactly once`)
   }
 }

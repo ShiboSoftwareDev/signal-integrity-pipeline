@@ -83,7 +83,7 @@ export function routeTransitions(circuit: CircuitJson, scope: CopperScope, geome
         const position = via.x * local.u[0] + via.y * local.u[1]
         const lateral = -via.x * local.u[1] + via.y * local.u[0] - local.transverse
         return { slice, distance: Math.hypot(lateral, Math.max(slice.start - position, position - slice.end, 0)) }
-      }).sort((a, b) => a.distance - b.distance)[0]?.slice.references ?? routeReferences(geometry, { ...wire, layer: name, transverse: -via.x * wire.u[1] + via.y * wire.u[0] }, via.x * wire.u[0] + via.y * wire.u[1])
+      }).sort((a, b) => a.distance - b.distance)[0]?.slice.references ?? routeReferences({ geometry, wire: { ...wire, layer: name, transverse: -via.x * wire.u[1] + via.y * wire.u[0] }, position: via.x * wire.u[0] + via.y * wire.u[1] })
       const before = adjacent(via.from_layer)
       const after = adjacent(via.to_layer)
       const references = [...before, ...after]
@@ -123,10 +123,10 @@ export function routeTransitions(circuit: CircuitJson, scope: CopperScope, geome
   for (const port of circuit.filter(record => record.type === 'pcb_port')) {
     const pad = circuit.filter(record => record.type === 'pcb_smtpad').find(pad => pad.pcb_port_id === port.pcb_port_id)
     if (!pad) continue
-    const wire = routeContactFrame(geometry, scope, pad.layer, [port.x, port.y])
+    const wire = routeContactFrame({ geometry, scope, layer: pad.layer, point: [port.x, port.y] })
     if (!wire) continue
     const position = port.x * wire.u[0] + port.y * wire.u[1]
-    const references = routeReferences(geometry, { ...wire, transverse: -port.x * wire.u[1] + port.y * wire.u[0] }, position)
+    const references = routeReferences({ geometry, wire: { ...wire, transverse: -port.x * wire.u[1] + port.y * wire.u[0] }, position })
     const layer = layers.find(layer => layer.name === wire.layer)!
     const area = padArea(pad)
     const gap = Math.min(...references.map(plane => Math.min(Math.abs(plane.z - layer.zMinMm), Math.abs(plane.z - layer.zMaxMm))))

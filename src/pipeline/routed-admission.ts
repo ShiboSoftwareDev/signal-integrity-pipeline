@@ -68,16 +68,16 @@ export class RoutedAdmissionSolver extends BaseSolver {
   override visualize(): GraphicsObject {
     const plan = this.plans.at(-1)
     const circuit = this.input.circuitJson
-    const drawing = routeBoardDrawing(circuit, plan?.sections.scope)
+    const drawing = routeBoardDrawing({ circuit, scope: plan?.sections.scope })
     const view = plan && routeView(circuit, plan.sections.scope)
-    if (view) routeStrip(drawing, view.pane, routeLengths(circuit, view))
+    if (view) routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view) })
     if (view)
-      routeMarks(drawing, plan.bindings.mappings.flatMap(mapping => ([[mapping.from, true], [mapping.to, false]] as const).flatMap(([id, driver]) => {
+      routeMarks({ drawing, marks: plan.bindings.mappings.flatMap(mapping => ([[mapping.from, true], [mapping.to, false]] as const).flatMap(([id, driver]) => {
         const point = routePortPoint(circuit, id)
         const net = view.ports.get(id)
         return point ? [{ point, color: net?.color ?? '#ffffff', driver, label: net?.label }] : []
-      })), view.unit)
-    if (this.failed) routeFailure(drawing, view?.pane ?? routeBoardBox(circuit), this.error ?? 'Invalid signal scope')
+      })), unit: view.unit })
+    if (this.failed) routeFailure({ drawing, box: view?.pane ?? routeBoardBox(circuit), message: this.error ?? 'Invalid signal scope' })
     return drawing
   }
 }

@@ -19,7 +19,7 @@ const ibisSources = Object.fromEntries(await Promise.all(['sprm552c.ibs', 'W631G
 await mkdir(output, { recursive: true })
 /** Save the stage's actual drawing over the real board, including an explicit failed state when no capture exists. */
 async function render(name: string, drawing: GraphicsObject): Promise<void> {
-  const svg = boardPictureSvg(circuitJson, drawing, 1800, 1400)
+  const svg = boardPictureSvg({ circuit: circuitJson, drawing, width: 1800, height: 1400 })
   await writeFile(join(output, `${name}.svg`), svg)
   await writeFile(join(output, `${name}.png`), new Resvg(svg, { font: { defaultFontFamily: 'Arial' } }).render().asPng())
 }

@@ -45,8 +45,8 @@ export function fieldsDrawing(state: FieldsState): GraphicsObject {
   const drawing = routeCanvas(frame)
   /** Selected copper is what the map colours; without a scope every wire counts. */
   const selected = (trace: string): boolean => !view || view.traces.has(trace)
-  if (view && circuitJson) routeNets(drawing, circuitJson, view, view.traces, () => routeTones.copper)
-  else for (const wire of geometry.wires) drawing.lines!.push(...routeStroke([wire.a, wire.b].map(([x, y]) => ({ x, y })), routeTones.copper, wire.width, wire.layer))
+  if (view && circuitJson) routeNets({ drawing, circuit: circuitJson, view, traceIds: view.traces, color: () => routeTones.copper })
+  else for (const wire of geometry.wires) drawing.lines!.push(...routeStroke({ points: [wire.a, wire.b].map(([x, y]) => ({ x, y })), color: routeTones.copper, width: wire.width, layer: wire.layer }))
   const values = state.solved.flatMap((slice) => slice.wires.flatMap((wire, i) => (selected(wire.trace) ? [sliceImpedance(slice.line, i)] : [])))
   // Never stretch a few ohms across the whole scale: it always spans at least ±10 % of the median.
   const median = [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 50
@@ -57,9 +57,9 @@ export function fieldsDrawing(state: FieldsState): GraphicsObject {
       if (!selected(wire.trace)) continue
       const z0 = sliceImpedance(slice.line, i)
       const points = [slice.start, slice.end].map((position) => (([x, y]) => ({ x, y }))(routePosition(wire, position)))
-      drawing.lines!.push(...routeStroke(points, impedanceColor(z0, low, high), wire.width, wire.layer, `${z0.toFixed(0)} Ω`))
+      drawing.lines!.push(...routeStroke({ points, color: impedanceColor(z0, low, high), width: wire.width, layer: wire.layer, label: `${z0.toFixed(0)} Ω` }))
     }
-  routePane(drawing, frame.pane, state.error ? routeTones.failure : undefined)
+  routePane({ drawing, box: frame.pane, edge: state.error ? routeTones.failure : undefined })
   if (state.slice && state.section) {
     const cut = routeBounds(sliceCut(drawing, state.slice, frame.unit))!
     const from = { x: (cut.minX + cut.maxX) / 2, y: (cut.minY + cut.maxY) / 2 }
@@ -70,7 +70,7 @@ export function fieldsDrawing(state: FieldsState): GraphicsObject {
     stackPane(drawing, frame.pane, state.section, colors, labels, state.line, state.materials)
   }
   if (values.length) impedanceBar(drawing, frame.pane, low, high)
-  if (state.error) routeFailure(drawing, frame.pane, state.error)
+  if (state.error) routeFailure({ drawing, box: frame.pane, message: state.error })
   return drawing
 }
 
@@ -132,7 +132,7 @@ function stackPane(drawing: GraphicsObject, pane: Viewbox, section: CrossSection
   if (labelled.length > 8) return
   // Neighbouring labels closer than a label's width alternate between two rows.
   const crowded = labelled.some((entry, i) => i > 0 && Math.abs(x(entry.c.xMm) - x(labelled[i - 1].c.xMm)) < unit * 2.8 * 0.6 * entry.text.length)
-  for (const [i, entry] of labelled.entries()) routeText(drawing, x(entry.c.xMm), z(zLow) - unit * (crowded && i % 2 ? 7 : 3.5), entry.text, entry.color, unit * 2.8)
+  for (const [i, entry] of labelled.entries()) routeText({ drawing, x: x(entry.c.xMm), y: z(zLow) - unit * (crowded && i % 2 ? 7 : 3.5), text: entry.text, color: entry.color, size: unit * 2.8 })
 }
 
 /** The impedance scale at the pane's foot: a gradient strip between the lowest and highest Z0. */
@@ -143,6 +143,6 @@ function impedanceBar(drawing: GraphicsObject, pane: Viewbox, low: number, high:
   const y = pane.minY + unit * 2.5
   for (let i = 0; i < 24; i++)
     drawing.rects!.push({ center: { x: left + ((right - left) * (i + 0.5)) / 24, y }, width: (right - left) / 24, height: unit * 1.2, fill: impedanceColorAt((i + 0.5) / 24) })
-  routeText(drawing, left - unit, y, `${low.toFixed(0)} Ω`, routeTones.quiet, unit * 2.6, 'center_right')
-  routeText(drawing, right + unit, y, `${high.toFixed(0)} Ω`, routeTones.quiet, unit * 2.6, 'center_left')
+  routeText({ drawing, x: left - unit, y, text: `${low.toFixed(0)} Ω`, color: routeTones.quiet, size: unit * 2.6, anchor: 'center_right' })
+  routeText({ drawing, x: right + unit, y, text: `${high.toFixed(0)} Ω`, color: routeTones.quiet, size: unit * 2.6, anchor: 'center_left' })
 }

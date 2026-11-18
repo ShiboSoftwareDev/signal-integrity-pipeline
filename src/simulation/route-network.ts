@@ -48,7 +48,7 @@ export class RouteNetworkSolver extends BaseSolver {
     /** Coordinates join actual physical copper only; no straightening or whole-net ideal bypass. */
     const key = (layer: string, point: RouteXY): string => `${layer}:${point.map(n => n.toFixed(6)).join(',')}`
     for (const port of bindings.circuitJson.filter(record => record.type === 'pcb_port')) for (const layer of port.layers) {
-      if (!routeContactFrame(geometry, scope, layer, [port.x, port.y])) continue
+      if (!routeContactFrame({ geometry, scope, layer, point: [port.x, port.y] })) continue
       const id = key(layer, [port.x, port.y])
       const portNode = node(port.source_port_id)
       const previous = known.get(id)
@@ -104,7 +104,7 @@ export class RouteNetworkSolver extends BaseSolver {
     const ground = connectedSourceIds(bindings.circuitJson, bindings.groundSourcePortId)
     const powerReferences = geometry.slices.flatMap(slice => slice.references.filter(plane => !ground.has(plane.net)).map(plane => ({ plane, traces: slice.wires.map(wire => wire.trace), start: slice.start, end: slice.end })))
     const mapped = new Set(models.flatMap(model => Object.values(model.spicePinMapping)))
-    const external = bindings.circuitJson.filter(record => record.type === 'pcb_port').filter(port => !mapped.has(port.source_port_id) && port.layers.some(layer => routeContactFrame(geometry, scope, layer, [port.x, port.y])))
+    const external = bindings.circuitJson.filter(record => record.type === 'pcb_port').filter(port => !mapped.has(port.source_port_id) && port.layers.some(layer => routeContactFrame({ geometry, scope, layer, point: [port.x, port.y] })))
     const modelOptions = options
     const warnings = [...extracted.warnings, ...transitions.warnings, ...models.flatMap(model => model.warnings),
       ...(options.returnPath ? [options.returnPath.definition, 'Hybrid cell layout uses the ideal 2D delay bound; the additional/replaced magnetic network requires independent numerical refinement and remains unqualified.'] : []),
@@ -142,7 +142,7 @@ export class RouteNetworkSolver extends BaseSolver {
     const { geometry, bindings, extracted } = this.input
     const circuit = bindings.circuitJson
     const view = routeView(circuit, bindings.scope)
-    const drawing = routeBoardDrawing(circuit, bindings.scope)
+    const drawing = routeBoardDrawing({ circuit, scope: bindings.scope })
     const built = this.output ? undefined : new Set(this.ladder?.wireNodes.keys() ?? [])
     /** A wire's position at `position` along its run, offset sideways to `transverse`. */
     const at = (wire: RouteWire, position: number, transverse: number): { x: number; y: number } => (([x, y]) => ({ x, y }))(routePosition({ ...wire, transverse }, position))
@@ -179,7 +179,7 @@ export class RouteNetworkSolver extends BaseSolver {
     const width = selected.length ? selected.reduce((sum, wire) => sum + wire.width, 0) / selected.length : view.unit
     for (const record of Array.isArray(transitions) ? transitions : []) {
       const via = record.kind === 'via' ? physical.get(String(record.id)) : undefined
-      if (via && via.x >= minX && via.x <= maxX && via.y >= minY && via.y <= maxY) routeVia(drawing, via, width * 1.4)
+      if (via && via.x >= minX && via.x <= maxX && via.y >= minY && via.y <= maxY) routeVia({ drawing, center: via, radius: width * 1.4 })
     }
     // The pane unrolls each net with its ladder cells as ticks and its coupling as violet under the bar.
     const unrolled = routeUnrolled(view, geometry.wires)
@@ -193,8 +193,8 @@ export class RouteNetworkSolver extends BaseSolver {
         const [from, to] = [unrolled.along(wire.id, slice.start), unrolled.along(wire.id, slice.end)]
         if (from && to) rows.get(from.net.label)?.bands!.push({ from: from.distance, to: to.distance, k })
       }
-    routeStrip(drawing, view.pane, [...rows.values()])
-    if (this.failed) routeFailure(drawing, view.pane, this.error ?? 'Network rejected')
+    routeStrip({ drawing, pane: view.pane, rows: [...rows.values()] })
+    if (this.failed) routeFailure({ drawing, box: view.pane, message: this.error ?? 'Network rejected' })
     return drawing
   }
 }

@@ -21,7 +21,7 @@ const manifest: Record<string, unknown> = {}
 
 /** Rasterize the stage drawing over the real board, exactly as the site composes it. */
 async function render(name: string, circuit: CircuitJson, drawing: GraphicsObject): Promise<void> {
-  const svg = boardPictureSvg(circuit, drawing, 1600, 1100)
+  const svg = boardPictureSvg({ circuit, drawing, width: 1600, height: 1100 })
   await writeFile(join(output, `${name}.graphics.json`), JSON.stringify(drawing))
   await writeFile(join(output, `${name}.svg`), svg)
   await writeFile(join(output, `${name}.png`), new Resvg(svg, { font: { defaultFontFamily: 'Arial' } }).render().asPng())

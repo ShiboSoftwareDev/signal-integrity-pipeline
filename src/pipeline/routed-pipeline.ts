@@ -139,18 +139,18 @@ export class RoutedPipelineSolver extends BasePipelineSolver<RoutedProblem> {
     const circuit = this.inputProblem.circuitJson
     if (plans && !plans.length) {
       // Nothing was admitted: the whole board with one quiet line, the same in every stage.
-      const drawing = routeBoardDrawing(circuit, undefined)
+      const drawing = routeBoardDrawing({ circuit, scope: undefined })
       const board = routeBoardBox(circuit)
-      routeText(drawing, (board.minX + board.maxX) / 2, (board.minY + board.maxY) / 2, 'No signal-integrity blocks admitted', routeTones.quiet, (board.maxX - board.minX) / 40)
+      routeText({ drawing, x: (board.minX + board.maxX) / 2, y: (board.minY + board.maxY) / 2, text: 'No signal-integrity blocks admitted', color: routeTones.quiet, size: (board.maxX - board.minX) / 40 })
       return drawing
     }
     if (solver) return solver.visualize()
     // A stage that cannot be built yet shows the selected copper and its unrolled lengths in neutral grey.
     const scope = plans?.[0]?.sections.scope
-    const drawing = routeBoardDrawing(circuit, scope, () => routeTones.copper)
+    const drawing = routeBoardDrawing({ circuit, scope, color: () => routeTones.copper })
     if (scope) {
       const view = routeView(circuit, scope)
-      routeStrip(drawing, view.pane, routeLengths(circuit, view).map(row => ({ ...row, parts: [{ from: 0, to: row.length, color: routeTones.copper }] })))
+      routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view).map(row => ({ ...row, parts: [{ from: 0, to: row.length, color: routeTones.copper }] })) })
     }
     return drawing
   }
@@ -160,7 +160,7 @@ export class RoutedPipelineSolver extends BasePipelineSolver<RoutedProblem> {
   }
   /** Before any stage has run there is nothing to overlay, so the whole board shows. */
   override initialVisualize(): GraphicsObject {
-    return routeBoardDrawing(this.inputProblem.circuitJson, undefined)
+    return routeBoardDrawing({ circuit: this.inputProblem.circuitJson, scope: undefined })
   }
   /** A completed pipeline follows the final transient; earlier stages keep their own drawings. */
   override finalVisualize(): GraphicsObject {

@@ -100,7 +100,9 @@ function validateReferenceVia(via: Via, m: ResolvedModeling, portId: string): nu
 }
 
 /** Physical reference leads terminate on the selected pour, including their actual via. */
-function groundConnection(circuit: CircuitJson, m: ResolvedModeling, portId: string, netIds: Set<string>, pours: RoutedCopper['pours']): Path {
+function groundConnection({ circuit, modeling: m, portId, netIds, pours }: {
+  circuit: CircuitJson; modeling: ResolvedModeling; portId: string; netIds: Set<string>; pours: RoutedCopper['pours']
+}): Path {
   const ports = circuit.filter(e => e.type === 'pcb_port').filter(e => e.source_port_id === portId)
   if (ports.length !== 1 || ports[0].layers.length !== 1) fail('ground_connection', `${portId}: one PCB reference port/layer required`)
   const port = ports[0]
@@ -160,7 +162,6 @@ function groundConnection(circuit: CircuitJson, m: ResolvedModeling, portId: str
   if (first.route_type !== 'wire' || first.layer !== port.layers[0]) fail('ground_connection', `${portId}: reference route must start on its physical pad layer`)
   for (const key of ['start_pcb_port_id', 'end_pcb_port_id'] as const) if (first[key] && first[key] !== port.pcb_port_id) fail('ground_connection', `${portId}: reference route endpoint metadata disagrees with its physical pad`)
   const end = route.at(-1)!
-  let contactRadiusMm: number
   if (end.route_type === 'via') {
     const vias = circuit.filter(e => e.type === 'pcb_via').filter(via =>
       via.pcb_trace_id === traces[0].pcb_trace_id && Math.hypot(via.x - end.x, via.y - end.y) < 1e-5 &&
@@ -170,25 +171,32 @@ function groundConnection(circuit: CircuitJson, m: ResolvedModeling, portId: str
     const radius = validateReferenceVia(via, m, portId)
     if (!pours.some(p => p.layer === end.to_layer && viaSpans(via, end.from_layer, p.layer, m) && barrelInside([end.x, end.y], radius, p.polygon)))
       fail('ground_connection', `${portId}: terminal reference via misses ground copper`)
-    contactRadiusMm = via.outer_diameter / 2
-  } else if (!pours.some(p => p.layer === end.layer && contains([end.x, end.y], p.polygon))) {
-    const vias = circuit.filter(e => e.type === 'pcb_via').filter(e => e.source_net_id && netIds.has(e.source_net_id) && e.layers.includes(end.layer) && Math.hypot(e.x - end.x, e.y - end.y) < 1e-5)
-    const targets = vias.flatMap(via => pours.filter(p => viaSpans(via, end.layer, p.layer, m) && contains([via.x, via.y], p.polygon)).map(p => ({ via, pour: p })))
-    if (targets.length !== 1) fail('ground_connection', `${portId}: reference via must connect unambiguously to actual ground copper`)
-    const { via, pour } = targets[0]
-    const barrelRadius = validateReferenceVia(via, m, portId)
-    if (!barrelInside([via.x, via.y], barrelRadius, pour.polygon)) fail('ground_connection', `${portId}: reference barrel misses ground copper`)
-    contactRadiusMm = via.outer_diameter/2
-    if (!m.omitThroughViaStubs) fail('via_stub', 'Select omitThroughViaStubs for the reference lead')
-    route = [...route, { route_type: 'via', x: end.x, y: end.y, from_layer: end.layer, to_layer: pour.layer as typeof end.layer, hole_diameter: via.hole_diameter }]
-  } else contactRadiusMm = end.width/2
+    return groundLeadPath({ route, portId, pours, contactRadiusMm: via.outer_diameter / 2 }, m)
+  }
+  if (pours.some(p => p.layer === end.layer && contains([end.x, end.y], p.polygon)))
+    return groundLeadPath({ route, portId, pours, contactRadiusMm: end.width / 2 }, m)
+  const vias = circuit.filter(e => e.type === 'pcb_via').filter(e => e.source_net_id && netIds.has(e.source_net_id) && e.layers.includes(end.layer) && Math.hypot(e.x - end.x, e.y - end.y) < 1e-5)
+  const targets = vias.flatMap(via => pours.filter(p => viaSpans(via, end.layer, p.layer, m) && contains([via.x, via.y], p.polygon)).map(p => ({ via, pour: p })))
+  if (targets.length !== 1) fail('ground_connection', `${portId}: reference via must connect unambiguously to actual ground copper`)
+  const { via, pour } = targets[0]
+  const barrelRadius = validateReferenceVia(via, m, portId)
+  if (!barrelInside([via.x, via.y], barrelRadius, pour.polygon)) fail('ground_connection', `${portId}: reference barrel misses ground copper`)
+  if (!m.omitThroughViaStubs) fail('via_stub', 'Select omitThroughViaStubs for the reference lead')
+  route = [...route, { route_type: 'via', x: end.x, y: end.y, from_layer: end.layer, to_layer: pour.layer as typeof end.layer, hole_diameter: via.hole_diameter }]
+  return groundLeadPath({ route, portId, pours, contactRadiusMm: via.outer_diameter / 2 }, m)
+}
+
+/** Build a routed lead and verify that its terminal touches the reference copper. */
+function groundLeadPath({ route, portId, pours, contactRadiusMm }: {
+  route: LaneMapping['originalRoute']; portId: string; pours: RoutedCopper['pours']; contactRadiusMm: number
+}, m: ResolvedModeling): Path {
   const path = routePath(route, m)
   if (!pours.some(p => Math.abs((p.zMinMm + p.zMaxMm) / 2 - path.terminals[1][2]) < 1e-8 && contains(path.terminals[1].slice(0, 2) as Point, p.polygon))) fail('ground_connection', `${portId}: reference lead misses ground copper`)
-  return {...path,contactRadiusMm}
+  return { ...path, contactRadiusMm }
 }
 
 /** Builds routed-copper geometry: the ground net's pours, signal paths and both reference leads, unmeshed in mm. */
-export function routedCopperGeometry(circuit: CircuitJson, m: ResolvedModeling, mappings: LaneMapping[]): Geometry {
+export function routedCopperGeometry({ circuit, modeling: m, mappings }: { circuit: CircuitJson; modeling: ResolvedModeling; mappings: LaneMapping[] }): Geometry {
   const reference = selectPort(circuit, m.channelReference).source_port_id
   const connected = connectedSourceIds(circuit, reference)
   const groundNets = circuit.filter(e => e.type === 'source_net').filter(e => e.is_ground && connected.has(e.source_net_id))
@@ -229,7 +237,7 @@ export function routedCopperGeometry(circuit: CircuitJson, m: ResolvedModeling, 
   }
   if (!connected.has(receiver) || receiver === reference) fail('ground_reference', 'Distinct driver/receiver ground pins must connect to the same ground net')
   const signals = mappings.map(mapping => routePath(mapping.originalRoute, m))
-  const connections = [reference, receiver].map(id => groundConnection(circuit, m, id, netIds, pours))
+  const connections = [reference, receiver].map(id => groundConnection({ circuit, modeling: m, portId: id, netIds, pours }))
   const terminalPours = connections.map(path => pours.find(p => Math.abs((p.zMinMm + p.zMaxMm) / 2 - path.terminals[1][2]) < 1e-8 && contains(path.terminals[1].slice(0, 2) as Point, p.polygon)))
   if (!terminalPours[0] || terminalPours[0] !== terminalPours[1]) fail('ground_connectivity', 'Reference leads must reach one connected pour; inter-pour stitching extraction is not supported')
   const routedCopper: RoutedCopper = { sourceNetId: net.source_net_id, sourceNetName: net.name, referenceSourcePortIds: [reference, receiver], pours, signals, connections }

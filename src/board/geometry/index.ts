@@ -27,10 +27,8 @@ export function validateModeling(m: Modeling): void {
   if(!Array.isArray(m.lanes)||(m.lanes.length < 1 && !m.allowIdeal)) fail('lanes','At least one routed conductor is required')
   for(const [i,l] of m.lanes.entries()) if(!l.port||!l.from||!l.to) fail('pin_mapping',`Lane ${i}: port/from/to mappings required`)
   if(new Set(m.lanes.map(l=>l.port)).size!==m.lanes.length) fail('pin_mapping','Lane port labels must be distinct')
-  if(m.reduction==='routed-copper') {
-    positive(m.relativePermittivity,'relativePermittivity (homogeneous dielectric approximation)')
-    positive(m.extraction?.groundMeshMm,'extraction.groundMeshMm')
-  }
+  positive(m.relativePermittivity,'relativePermittivity (homogeneous dielectric approximation)')
+  positive(m.extraction?.groundMeshMm,'extraction.groundMeshMm')
   if(!m.extraction) fail('extraction','Explicit mesh/frequency/model settings required')
   for(const key of ['minimumHz','maximumHz','modelHz','filaments','refinementFilaments','convergenceTolerance','capTolerance','maxPanelLengthMm','reciprocityTolerance','dcResistanceTolerance'] as const) positive(m.extraction[key],`extraction.${key}`)
   if(m.extraction.minimumHz>m.extraction.modelHz||m.extraction.modelHz>m.extraction.maximumHz||!Number.isInteger(m.extraction.filaments)) fail('extraction','Require minimumHz <= modelHz <= maximumHz and integer filaments')
@@ -46,15 +44,18 @@ export function geometryFromCircuitJson(cj: CircuitJson,modeling: Modeling): Geo
   const m: ResolvedModeling = {...modeling, stackup: stackup.copperLayers, conductivitySm: defaultCopperConductivitySm,
     relativePermittivity: modeling.relativePermittivity ?? stackup.relativePermittivity, viaPlatingMm: modeling.viaPlatingMm ?? stackup.viaPlatingMm}
   validateModeling(m)
-  if (m.copperScope) {
-    const rejections = copperScopeRejections(m.copperScope)
-    if (rejections.length) throw Object.assign(new Error(rejections[0]), { rejections, copperScope: m.copperScope })
-    cj = cj.filter(record => record.type === 'pcb_trace' ? m.copperScope!.pcbTraceIds.includes(record.pcb_trace_id)
-      : record.type === 'pcb_via' ? m.copperScope!.pcbViaIds.includes(record.pcb_via_id)
-      : record.type === 'pcb_copper_pour' ? m.copperScope!.pcbCopperPourIds.includes(record.pcb_copper_pour_id) : true)
+  const copperScope = m.copperScope
+  if (copperScope) {
+    const rejections = copperScopeRejections(copperScope)
+    if (rejections.length) throw Object.assign(new Error(rejections[0]), { rejections, copperScope })
+    cj = cj.filter(record => {
+      if (record.type === 'pcb_trace') return copperScope.pcbTraceIds.includes(record.pcb_trace_id)
+      if (record.type === 'pcb_via') return copperScope.pcbViaIds.includes(record.pcb_via_id)
+      if (record.type === 'pcb_copper_pour') return copperScope.pcbCopperPourIds.includes(record.pcb_copper_pour_id)
+      return true
+    })
   }
   if (!m.lanes.length && m.allowIdeal) return { stackup, cells: [], mappings: [], units: { circuitJson: 'mm', geometry: 'm', conductivity: 'S/m' }, approximations: ['Unrouted signal copper is ideal by explicit allow_unrouted_traces=true'] }
-  const routes: RouteStage[][]=[]
   const mappings: LaneMapping[]=[]
   const selectedTraces=new Set<string>()
   for(const lane of m.lanes) {
@@ -139,10 +140,9 @@ export function geometryFromCircuitJson(cj: CircuitJson,modeling: Modeling): Geo
       }
     }
     if(!stages.length) fail('empty_route',lane.port)
-    routes.push(stages)
     mappings.push({port:lane.port,sourceTraceId:src.source_trace_id,pcbTraceId:traces[0].pcb_trace_id,from:from.source_port_id,to:to.source_port_id,pcbPorts:ports.map(p=>p.pcb_port_id),stages,originalRoute:route})
   }
-  const geometry = {...routedCopperGeometry(cj,m,joinSeriesMappings(mappings)),stackup}
+  const geometry = {...routedCopperGeometry({ circuit: cj, modeling: m, mappings: joinSeriesMappings(mappings) }),stackup}
   if (m.copperScope) geometry.approximations.push(m.copperScope.approximation)
   const board = cj.find(record => record.type === 'pcb_board')!
   const x = board.center.x
@@ -152,7 +152,8 @@ export function geometryFromCircuitJson(cj: CircuitJson,modeling: Modeling): Geo
     [x + board.width! / 2, y + board.height! / 2], [x - board.width! / 2, y + board.height! / 2],
   ]]
   for (const cell of geometry.cells) cell.dielectric = { polygon, layers: stackup.dielectrics }
-  return m.simplifyParallel ? parallelCopperGeometry(geometry) : geometry
+  if (m.simplifyParallel) return parallelCopperGeometry(geometry)
+  return geometry
 }
 
 /** Board + board modeling -> today's Geometry, plus `geometry.json` under `scope` (byte-identical to jsonFile). */

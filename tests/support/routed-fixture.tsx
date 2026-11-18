@@ -18,7 +18,7 @@ export async function routedCopper(): Promise<{ circuitJson: CircuitJson; scope:
   if (trace.type !== 'source_trace') throw new Error('Missing TSX trace')
   const ground = circuitJson.find(record => record.type === 'source_net')!
   if (ground.type !== 'source_net') throw new Error('Missing TSX ground')
-  return { circuitJson, scope: channelCopperScope(circuitJson, connectedSourceIds(circuitJson, trace.connected_source_port_ids[0]), connectedSourceIds(circuitJson, ground.source_net_id), undefined, 1) }
+  return { circuitJson, scope: channelCopperScope({ circuit: circuitJson, selected: connectedSourceIds(circuitJson, trace.connected_source_port_ids[0]), reference: connectedSourceIds(circuitJson, ground.source_net_id), distanceMm: 1 }) }
 }
 
 /** Explicitly skip unavailable vendor assets; they are never replaced with synthetic native models. */

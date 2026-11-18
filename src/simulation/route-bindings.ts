@@ -60,7 +60,7 @@ export class RouteBindingsSolver extends BaseSolver {
   override visualize(): GraphicsObject {
     const circuit = this.input.circuitJson
     const view = routeView(circuit, this.input.scope)
-    const drawing = routeBoardDrawing(circuit, this.input.scope)
+    const drawing = routeBoardDrawing({ circuit, scope: this.input.scope })
     const pcbPorts = new Map(circuit.flatMap(port => (port.type === 'pcb_port' ? [[port.source_port_id, port] as const] : [])))
     const components = new Map(circuit.flatMap(component => (component.type === 'pcb_component' ? [[component.pcb_component_id, component] as const] : [])))
     /** Outline the parts that own these ports. */
@@ -80,16 +80,16 @@ export class RouteBindingsSolver extends BaseSolver {
           return []
         }
         const net = view.ports.get(id)
-        return [{ point, direction: routePinDirection(circuit, view, point), color: net?.color ?? routeTones.copper, driver: Boolean(this.plan?.states.some(state => state.source_port_id === id && state.is_output)), label: net?.label }]
+        return [{ point, direction: routePinDirection({ circuit, view, pin: point }), color: net?.color ?? routeTones.copper, driver: Boolean(this.plan?.states.some(state => state.source_port_id === id && state.is_output)), label: net?.label }]
       })
     })
-    routeBuffers(drawing, buffers, view.unit)
+    routeBuffers({ drawing, buffers, unit: view.unit })
     // Each bound net unrolled, its driver and receiver glyphs at the ends once both are bound.
     const bound = new Set(buffers.map(buffer => buffer.label))
-    routeStrip(drawing, view.pane, routeLengths(circuit, view).filter(row => bound.has(row.net.label)), { driver: true, receiver: true })
+    routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view).filter(row => bound.has(row.net.label)), buffers: { driver: true, receiver: true } })
     if (this.failed) {
       outline(this.input.mappings.flatMap(mapping => [mapping.from, mapping.to]), routeTones.failure, 'unbound')
-      routeFailure(drawing, view.pane, this.error ?? 'IBIS binding unavailable')
+      routeFailure({ drawing, box: view.pane, message: this.error ?? 'IBIS binding unavailable' })
     }
     return drawing
   }
