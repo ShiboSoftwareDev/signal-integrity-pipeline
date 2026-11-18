@@ -2,7 +2,7 @@ import type { GraphicsObject, Line, NinePointAnchor, Point, Viewbox } from 'grap
 import type { CircuitJson } from './schema'
 import type { CopperScope } from './geometry/scope'
 import type { SourcePort } from './geometry/types'
-import { connectedSourceIds } from './connectivity'
+import { getSourcePortConnectivityMapFromCircuitJson, sourceNetMembers } from './connectivity'
 import { signalEndpointPortIds } from './signals'
 
 /** Fixed roles over the dark board; nets get their own bright hues. */
@@ -138,6 +138,7 @@ export function routeView(circuit: CircuitJson, scope: CopperScope): RouteView {
 
 /** Resolve selected source traces to net styles, pairing differential legs by signal. */
 function routeViewNets(circuit: CircuitJson, order: SourceTraceId[]): Pick<RouteView, 'sources' | 'ports'> {
+  const connectivity = getSourcePortConnectivityMapFromCircuitJson(circuit)
   const nets: { ids: Set<string>; sources: string[] }[] = []
   const sourceTraces = circuit.filter((record) => record.type === 'source_trace')
   for (const id of order) {
@@ -152,7 +153,7 @@ function routeViewNets(circuit: CircuitJson, order: SourceTraceId[]): Pick<Route
       net.sources.push(id)
       continue
     }
-    nets.push({ ids: connectedSourceIds(circuit, seed), sources: [id] })
+    nets.push({ ids: sourceNetMembers(connectivity, seed), sources: [id] })
   }
   const channels = new Map<SignalName, { ends: string[]; legs: string[]; unitInterval: number }>()
   for (const signal of circuit.filter(record => record.type === 'simulation_pcb_driver_receiver_channel')) {
