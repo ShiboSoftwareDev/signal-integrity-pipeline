@@ -1,14 +1,32 @@
 import { parseIbis } from '@tscircuit/ibis-to-spice'
 import type { ModelRunDefinition, PackagedComponent } from './types'
 import { referenceVoltages } from './inspect'
-import { coupledPackage, coupledPackageElements, packageComparisons, packageCapacitanceWarnings } from './coupled-package'
+import { coupledPackage, coupledPackageElements, packageComparisons, packageCapacitanceWarnings, packageRail } from './coupled-package'
 import { convertSwitching } from './switching'
+import { asciiLowerCase, isSpace, tokenEnd } from './text'
 import { sha256 } from '../kernel'
 
 type SpiceTerminal = keyof PackagedComponent['spicePinMapping']
 type SourcePortId = PackagedComponent['spicePinMapping'][SpiceTerminal]
 type PhysicalPin = keyof ReturnType<typeof parseIbis>['components'][string]['pins']
 type SpiceNode = string
+
+/** Remap whole SPICE tokens while retaining all original whitespace. */
+function remapNodes(line: string, nodes: ReadonlyMap<string, SpiceNode>): string {
+  let source = ''
+  for (let start = 0; start < line.length;) {
+    if (isSpace(line[start])) {
+      source += line[start]
+      start++
+      continue
+    }
+    const end = tokenEnd(line, start)
+    const token = line.slice(start, end)
+    source += nodes.get(token) ?? token
+    start = end
+  }
+  return source
+}
 
 /** Convert die buffers, retaining every vendor pin package with ideal die rails. */
 export function convertPackaged({ bytes, input, sourceFile = input.definition.source.file ?? '(inline IBIS)' }: { bytes: Uint8Array; input: ModelRunDefinition; sourceFile?: string }): PackagedComponent {
@@ -25,7 +43,7 @@ export function convertPackaged({ bytes, input, sourceFile = input.definition.so
   const selected = coupledPackage({ text, component, pins: physicalPins })
   const top = converted.source.indexOf('\n.ends ')
   const wrapper = converted.source.slice(0, top).split('\n')
-  const header = wrapper.findIndex(line => /^\.subckt /i.test(line))
+  const header = wrapper.findIndex(line => asciiLowerCase(line.slice(0, '.subckt '.length)) === '.subckt ')
   const nodes = new Map<SpiceTerminal, SpiceNode>()
   const elements: string[] = []
   const refs = converted.metadata.pins.map(pin => pin.references.pulldown)
@@ -45,7 +63,7 @@ export function convertPackaged({ bytes, input, sourceFile = input.definition.so
   const referenceNodes = new Map(Object.entries(converted.spicePinMapping).flatMap(([terminal], i) => {
     const physical = physicalPins[i]
     const pin = component.pins[physical]
-    if (!/^(power|gnd)$/i.test(pin.model)) return []
+    if (packageRail(pin.model) === undefined) return []
     const key = selected?.mergedPins[physical] ?? physical
     if (!rails.has(key)) rails.set(key, `DIE${i}`)
     return [[terminal, rails.get(key)!] as const]
@@ -80,7 +98,7 @@ export function convertPackaged({ bytes, input, sourceFile = input.definition.so
     nodes.set(terminal, reference || node)
     if (reference) {
       let voltage = voltages.get(port)
-      if (voltage == null && /^gnd$/i.test(pin.model)) voltage = 0
+      if (voltage == null && packageRail(pin.model) === 'pulldown') voltage = 0
       if (voltage === undefined) throw new Error(`${port}: no selected model defines this die rail`)
       if (supplied.has(reference) && Math.abs(supplied.get(reference)! - voltage) > 1e-8) throw new Error(`${component.name}: incompatible die voltages on merged package pin ${matrixPin}`)
       if (!supplied.has(reference)) elements.push(`VPDN${i} ${reference} 0 ${voltage}`, `VPKG${i} ${node} ${reference} 0`)
@@ -104,7 +122,7 @@ export function convertPackaged({ bytes, input, sourceFile = input.definition.so
   }
   const body = wrapper.map((line, index) => {
     if (index <= header) return line
-    return line.replace(/\S+/g, token => nodes.get(token) ?? token)
+    return remapNodes(line, nodes)
   })
   converted.source = [...body, ...elements].join('\n') + converted.source.slice(top)
   converted.metadata.packagePolicy = 'vendor'

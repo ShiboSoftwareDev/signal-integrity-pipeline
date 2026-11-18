@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { convertPackaged } from '../../src/buffers/package'
 import { coupledPackage, coupledPackageElements } from '../../src/buffers/coupled-package'
+import { splitWords, subcircuitHeader } from '../../src/buffers/text'
 import { createNativeSolver } from '../../src/adapters'
 
 import { source, Board } from '../support/coupled-package-fixture'
@@ -70,7 +71,7 @@ A1
   assert.match(unlisted.source, /CPKGU3a REF1 DIE3 4\.95e-11/)
   assert.match(unlisted.source, /VPDN2 DIE2 0 1\.5/)
   assert.match(unlisted.source, /VPDN3 DIE3 0 0/)
-  const identifiers = unlisted.source.split('\n').filter(line => /^[RVLCHK]PKG/.test(line)).map(line => line.split(' ')[0])
+  const identifiers = unlisted.source.split('\n').filter(line => ['R', 'V', 'L', 'C', 'H', 'K'].some(kind => line.startsWith(kind + 'PKG'))).map(line => line.split(' ')[0])
   assert.equal(new Set(identifiers).size, identifiers.length, 'scalar and matrix element names cannot collide')
   assert.equal(unlisted.metadata.packageData.mappedPins.find(pin => pin.physicalPin === 'V1')?.resistanceOhms, 7)
   assert.equal(unlisted.metadata.packageData.mappedPins.find(pin => pin.physicalPin === 'G1')?.resistanceOhms, 99)
@@ -105,7 +106,7 @@ V2 NC VDD NC NC
   const solve = createNativeSolver({ timeoutMs: 10000, tools: { ngspice: process.env.NGSPICE_BIN ?? '/opt/homebrew/bin/ngspice' } })
   const result = await solve({ solver: 'ngspice', files: { 'package.cir': deck }, args: ['-n', '-b', 'package.cir'], outputFiles: ['package.dat'] })
   assert.doesNotMatch(result.stdout + result.stderr, /error|fatal|aborted/i)
-  const values = result.files['package.dat'].trim().split('\n')[1].trim().split(/\s+/).map(Number)
+  const values = splitWords(result.files['package.dat'].trim().split('\n')[1].trim()).map(Number)
   const omega = 2 * Math.PI * 1e6
   for (let i = 0; i < 2; i++) {
     const real = [0, 1].reduce((sum, j) => sum + data.R[i][j] * values[5 + 2 * j] - omega * data.L[i][j] * values[6 + 2 * j], 0)
@@ -115,7 +116,7 @@ V2 NC VDD NC NC
     assert.ok(Math.abs(-values[10 + 2 * i] - values[6 + 2 * i] - omega * data.C[i][0] / 2) < 1e-8, 'board-side pi capacitance matches Maxwell C')
   }
   for (const mixed of [unlisted, merged]) {
-    const name = /^\.subckt (\S+)/m.exec(mixed.source)![1]
+    const name = subcircuitHeader(mixed.source)![1]
     const deck = ['Mixed package only AC oracle', mixed.source, `XTEST a b v g ${name}`, 'VA a 0 ac 1', 'VB b 0 ac 0', 'VV v 0 1.5', 'VG g 0 0',
       '.control', 'ac lin 1 1Meg 1Meg', 'quit', '.endc', '.end'].join('\n')
     const result = await solve({ solver: 'ngspice', files: { 'mixed.cir': deck }, args: ['-n', '-b', 'mixed.cir'], outputFiles: [] })
