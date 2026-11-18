@@ -1,7 +1,7 @@
-import type { CircuitJson, CopperScope, LaneMapping } from '../board'
+import type { CircuitJson, CopperScope, LaneMapping, SectionGeometry } from '../board'
 import type { CompiledBuffer, IbisSources } from '../buffers'
-import type { RouteMaterials } from '../extraction'
-import type { RunControls, SimulationModeling, SimulationPlan } from './types'
+import type { ExtractedRoutes, RouteMaterials } from '../extraction'
+import type { RunControls, SimulationModeling, SimulationPlan, VoltageProbePlan } from './types'
 
 export interface RoutedCompileOptions {
   riseSeconds: number
@@ -33,4 +33,25 @@ export interface RoutedBindings {
   groundSourcePortId: string
   electricalLines: string[]
   models: RouteBuffer[]
+}
+export interface RouteNetworkInput {
+  blockId: string
+  name: string
+  geometry: SectionGeometry
+  extracted: ExtractedRoutes
+  bindings: RoutedBindings
+  materials: RouteMaterials
+  options: RoutedCompileOptions
+  warnings: string[]
+  artifactPrefix: string
+}
+export interface RoutedDeck {
+  blockId: string
+  name: string
+  deck: string
+  requestSha256: string
+  probes: VoltageProbePlan[]
+  durationSeconds: number
+  stepSeconds: number
+  evidence: Record<string, unknown>
 }
