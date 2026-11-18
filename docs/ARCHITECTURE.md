@@ -4,16 +4,17 @@ The stack retains Circuit JSON validation, physical stackup and stimulus helpers
 Declare transient channels in Circuit JSON. Signal preparation validates endpoint topology, selected IBIS capabilities, timing and PRBS patterns.
 RoutedAdmissionSolver lowers each declared block into immutable inputs for route sections and buffer binding.
 RouteSectionsSolver divides scoped copper into straight slices and resolves physical endpoint contacts.
+The standalone 2D cross-section solve returns per-unit-length C/C0/L and frequency-dependent R/G.
 
 ```mermaid
 flowchart LR
-  input["RoutedAdmissionSolver"] --> result["RouteSectionsSolver"]
+  input["Cross-section geometry"] --> result["Per-unit-length field coefficients"]
 ```
 
 ```mermaid
 stateDiagram-v2
   [*] --> Ready
-  Ready --> Complete: RouteSectionsSolver
+  Ready --> Complete: Per-unit-length field coefficients
   Ready --> Failed: invalid input
   Complete --> [*]
   Failed --> [*]

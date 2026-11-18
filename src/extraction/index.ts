@@ -7,3 +7,4 @@
 export type { Matrix } from './linalg'
 export { validateMatrix, type MatrixCheck } from './checks'
 export { sum, transpose, multiply, symmetrize } from './linalg'
+export { solveCrossSection, solveSectionCapacitance, type CrossSection, type CrossSectionOptions, type CrossSectionResult, type SectionConductor, type SectionPlane, type SectionDielectric } from './cross-section'
