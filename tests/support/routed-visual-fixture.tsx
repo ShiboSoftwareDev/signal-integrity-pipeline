@@ -9,6 +9,7 @@ import { RoutedPipelineSolver } from '../../src/pipeline'
 import { formatSpiceVectors } from '../../src/observation'
 import type { SolverContext } from '../../src/solver'
 import type { CircuitJson } from '../../src/board'
+import { savedVectors, transientDuration, voltageNames } from './routed-deck'
 
 // Original synthetic IBIS model for unit tests.
 export const routedVisualIbis = `[IBIS Ver] 4.2
@@ -89,9 +90,8 @@ export function routedVisualFixture(blocks: number = 1): Promise<{ root: RoutedP
     // Synthetic engine IO for drawing only; these curves are not solver evidence.
     const context: SolverContext = { progress: (): void => undefined, runSolver: async request => {
       const deck = request.files['simulation.cir']
-      const duration = Number(/^\.tran\s+\S+\s+(\S+)/m.exec(deck)![1])
-      const saved = /^\.save (.+)$/m.exec(deck)![1]
-      const names = [...new Set([...saved.matchAll(/v\(([^)]+)\)/g)].map(match => match[1]))]
+      const duration = transientDuration(deck)
+      const names = voltageNames(savedVectors(deck))
       return { stdout: '', stderr: '', files: { 'waveform.raw': formatSpiceVectors([
         { name: 'time', type: 'time', values: [0, duration * .2, duration * .21, duration * .25, duration] },
         ...names.map((name, i) => ({ name: `v(${name})`, type: 'voltage', values: i === 0 ? [0, .8, 2.1, 1.5, 1.5] : i === 1 ? [0, .1, -.5, .05, 0] : [3.3, 3.3, 3.3, 3.3, 3.3] })),

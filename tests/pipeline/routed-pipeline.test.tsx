@@ -14,6 +14,7 @@ import { BasePipelineSolver } from '@tscircuit/solver-utils'
 import { routedStages } from '../../src/pipeline'
 import { routedProblem } from '../support/routed-fixture'
 import { renderCoreSignals } from '../support/core-render'
+import { driverWeights, transientDuration, voltageNames } from '../support/routed-deck'
 
 test('TSX two-trace routed deck pins the single coupled skin multiport and declarative transient vectors', { skip: !process.env.IBIS_MODEL_DIR && 'Set IBIS_MODEL_DIR to local vendor sn74lvc1g04.ibs; vendor bytes are not committed' }, async () => {
   const circuit = await renderCoreSignals(<TwoTraceBoard bit-rate="400Mbps" duration-seconds={4e-9} />)
@@ -41,8 +42,8 @@ test('TSX two-trace routed deck pins the single coupled skin multiport and decla
 /** Synthetic engine protocol only; native evidence lives in route-transient.test.tsx. */
 const synthetic: SolverContext = { progress: (): void => undefined, runSolver: async request => {
   const deck = request.files['simulation.cir']
-  const duration = Number(/^\.tran\s+\S+\s+(\S+)/m.exec(deck)![1])
-  const names = [...new Set([...deck.matchAll(/v\(([^)]+)\)/g)].map(match => match[1]))]
+  const duration = transientDuration(deck)
+  const names = voltageNames(deck)
   return { stdout: '', stderr: '', files: { 'waveform.raw': formatSpiceVectors([{ name: 'time', type: 'time', values: [0, duration] }, ...names.map(name => ({ name: `v(${name})`, type: 'voltage', values: [0, 0] }))]) } }
 } }
 
@@ -91,7 +92,7 @@ test('default two-trace TSX deck retains the measured driver lead-in and capture
   assert.equal(solver.stageOutput('RoutedAdmissionSolver').value[0].bindings.options.durationSeconds, 40e-9)
   const deck = solver.stageOutput('RouteNetworkSolver').value[0]
   if (!process.versions.bun) assert.equal(sha256(deck.deck), '83867184e5373f0b20e056fe1011de164269396e2b51bb5ff76a171a288371ad', 'default two-trace deck pins the deliberate single skin multiport realization')
-  const values = /^VKU0 .*PWL\((.+)\)$/m.exec(deck.deck)![1].split(/\s+/).map(Number)
+  const values = driverWeights(deck.deck)
   const weights = values.filter((_, i) => i % 2 === 0).map((time, i) => [time, values[2 * i + 1]])
   // The old 2.5 ns trigger plus preserved lead-in fell outside its 4 ns capture.
   assert.ok(weights.some(([time, ku]) => time > 20e-9 && time < 22e-9 && Math.abs(ku) < .01))

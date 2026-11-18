@@ -73,7 +73,7 @@ void request;void circuitJson;void simulate;`)
     console.log('Packed Bun contract: passed')
   }
   catch(error){
-    if(/ENOENT/.test(error.message))console.log('Packed Bun smoke: skipped (set BUN to the executable)')
+    if(error.message.includes('ENOENT'))console.log('Packed Bun smoke: skipped (set BUN to the executable)')
     else throw error
   }
 } finally {await rm(temporary,{recursive:true,force:true})}
