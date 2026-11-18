@@ -16,3 +16,5 @@ export { polygonContains } from './geometry/polygon'
 
 export type { SimulationPcbTransientChannelSimulation, SimulationPcbDriverReceiverChannel, SignalEndpoint } from './signals'
 export { isQuiet } from './signals'
+
+export type { RouteSectionsInput } from './route-sections-solver'
