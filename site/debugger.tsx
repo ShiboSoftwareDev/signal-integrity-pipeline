@@ -113,7 +113,7 @@ function renderStage(root: RoutedPipelineSolver, number: number): React.JSX.Elem
 
 export interface BoardPageProps {
   'board-tree'?: React.ReactElement
-  'load-board'?: (sources: IbisSources) => Promise<CircuitJson>
+  'load-board'?: () => Promise<CircuitJson>
   models: string[]
 }
 
@@ -125,19 +125,9 @@ export async function localAsset(name: string): Promise<string> {
   return body.text
 }
 
-/** Render the original example TSX with exact local model bytes before mounting the solver. */
-async function renderBoard(tree: React.ReactElement, sources: IbisSources): Promise<CircuitJson> {
-  const circuit = new Circuit({
-    platform: {
-      partsEngineDisabled: true,
-      platformFetch: async (url) => {
-        const path = `models/${String(url).split('/').at(-1)}`
-        const bytes = sources[path]
-        if (bytes === undefined) throw new Error(`missing local asset: ${path}`)
-        return new Response(typeof bytes === 'string' ? bytes : new Uint8Array(bytes).buffer)
-      },
-    },
-  })
+/** Render a TSX board's asset references and declarations. */
+async function renderBoard(tree: React.ReactElement): Promise<CircuitJson> {
+  const circuit = new Circuit({ platform: { partsEngineDisabled: true } })
   circuit.add(tree)
   await circuit.renderUntilSettled()
   const records = circuit.getCircuitJson() as CircuitJson
@@ -193,7 +183,7 @@ export function BoardPage({ 'board-tree': boardTree, 'load-board': loadBoard, mo
     const load = async (): Promise<void> => {
       const assets: IbisSources = {}
       for (const model of models) if (!assets[`models/${model}`]) assets[`models/${model}`] = await localAsset(model)
-      const circuitJson = loadBoard ? await loadBoard(assets) : await renderBoard(boardTree!, assets)
+      const circuitJson = loadBoard ? await loadBoard() : await renderBoard(boardTree!)
       if (cancelled) return
       const runSolver = createHttpSolver({ signal: controller.signal })
       for (const record of circuitJson)
