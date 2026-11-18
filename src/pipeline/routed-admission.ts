@@ -1,5 +1,6 @@
 import { BaseSolver } from '@tscircuit/solver-utils'
-import { validateCircuitRecords, type CircuitJson, type LaneMapping } from '../board'
+import type { GraphicsObject } from 'graphics-debug'
+import { validateCircuitRecords, routeBoardBox, routeBoardDrawing, routeFailure, routeLengths, routeMarks, routePortPoint, routeStrip, routeView, type CircuitJson, type LaneMapping } from '../board'
 import { edgeSeconds, type IbisSources } from '../buffers'
 import { rootScope, snapshot, sha256, type Produced } from '../kernel'
 import type { RouteSectionsInput } from '../board'
@@ -68,4 +69,24 @@ export class RoutedAdmissionSolver extends BaseSolver {
   }
   /** Original input only. */
   override getConstructorParams(): [RoutedProblem] { return [this.input] }
+  /** Selected copper in net colours with drivers as dots and receivers as rings, and each net's routed length unrolled in the pane; a rejection writes one red reason. */
+  override visualize(): GraphicsObject {
+    const plan = this.plans.at(-1)
+    const circuit = this.input.circuitJson
+    const drawing = routeBoardDrawing({ circuit, scope: plan?.sections.scope })
+    if (!plan) {
+      if (this.failed) routeFailure({ drawing, box: routeBoardBox(circuit), message: this.error ?? 'Invalid signal scope' })
+      return drawing
+    }
+    const view = routeView(circuit, plan.sections.scope)
+    routeStrip({ drawing, pane: view.pane, rows: routeLengths(circuit, view) })
+    routeMarks({ drawing, marks: plan.bindings.mappings.flatMap(mapping => ([[mapping.from, true], [mapping.to, false]] as const).flatMap(([id, driver]) => {
+      const point = routePortPoint(circuit, id)
+      if (!point) return []
+      const net = view.ports.get(id)
+      return [{ point, color: net?.color ?? '#ffffff', driver, label: net?.label }]
+    })), unit: view.unit })
+    if (this.failed) routeFailure({ drawing, box: view.pane, message: this.error ?? 'Invalid signal scope' })
+    return drawing
+  }
 }

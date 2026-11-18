@@ -22,3 +22,5 @@ export { RouteBindingsSolver } from './route-bindings'
 export { RouteNetworkSolver } from './route-network'
 export { RouteTransientSolver } from './route-transient'
 export type { RoutedCompileOptions, RouteBindingsInput, RoutedBindings, RouteNetworkInput, RoutedDeck, RoutedCapture } from './routed-types'
+
+export { routeWaveformDrawing, receiverThreshold, roundStep, roundTicks, type WaveformProbe, type WaveformState, type ReceiverThreshold } from './waveform-visual'
